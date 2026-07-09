@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hofmann Shapes</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <aside id="panel">
+      <h1>Hofmann<br />Shapes</h1>
+      <p class="hint">Click / drag on the grid to fill or clear circles. Touching circles fuse into one shape.</p>
+
+      <label>
+        <span>Columns <em id="colsVal">5</em></span>
+        <input id="cols" type="range" min="2" max="10" step="1" value="5" />
+      </label>
+
+      <label>
+        <span>Rows <em id="rowsVal">5</em></span>
+        <input id="rows" type="range" min="2" max="10" step="1" value="5" />
+      </label>
+
+      <label>
+        <span>Dot size <em id="dotVal">100%</em></span>
+        <input id="dot" type="range" min="55" max="140" step="1" value="100" />
+      </label>
+
+      <label>
+        <span>Fusion <em id="gooVal">45</em></span>
+        <input id="goo" type="range" min="0" max="100" step="1" value="45" />
+      </label>
+
+      <label class="check">
+        <input id="showGrid" type="checkbox" checked />
+        <span>Show grid</span>
+      </label>
+
+      <div class="buttons">
+        <button id="random">Random <kbd>R</kbd></button>
+        <button id="invert">Invert <kbd>I</kbd></button>
+        <button id="clear">Clear <kbd>C</kbd></button>
+        <button id="save" class="primary">Save PNG <kbd>S</kbd></button>
+      </div>
+    </aside>
+    <main id="stage"></main>
+  </div>
+  <script src="sketch.js"></script>
+</body>
+</html>

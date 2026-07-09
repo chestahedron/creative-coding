@@ -340,56 +340,137 @@ function pickExternalTangent(A, B, centroid) {
   return best;
 }
 
+/** Lower is better. Infinity = invalid. */
+function scoreSubArc(S, arrive, leave, centroid) {
+  const a0 = Math.atan2(arrive.y - S.y, arrive.x - S.x);
+  const a1 = Math.atan2(leave.y - S.y, leave.x - S.x);
+  let delta = a1 - a0;
+  while (delta > 0) delta -= TWO_PI;
+  while (delta <= -TWO_PI) delta += TWO_PI;
+  if (Math.abs(delta) < 0.15) return Infinity;
+
+  const amid = a0 + delta / 2;
+  const mx = S.x + Math.cos(amid) * cellR;
+  const my = S.y + Math.sin(amid) * cellR;
+  let score = Math.hypot(mx - centroid.x, my - centroid.y);
+  // Prefer minor CW dent arcs
+  if (Math.abs(delta) > PI) score += 800;
+  else score += Math.abs(delta) * 8;
+  return score;
+}
+
+/** CCW arc on ADD between arrive→leave; tiny = sharp zigzag, ~π = bottom wrap zigzag. */
+function scoreAddCorner(node, arrive, leave) {
+  const a0 = Math.atan2(arrive.y - node.y, arrive.x - node.x);
+  const a1 = Math.atan2(leave.y - node.y, leave.x - node.x);
+  let delta = a1 - a0;
+  while (delta < 0) delta += TWO_PI;
+  while (delta >= TWO_PI) delta -= TWO_PI;
+  if (delta < 0.3) return 5000; // acute pinch
+  if (delta > 2.4) return 5000; // wrapping past the corner (classic zigzag)
+  // Prefer roughly quarter-turn corners
+  return Math.abs(delta - HALF_PI) * 40;
+}
+
 /**
- * For ADD → SUB → ADD, pick a pair of internal tangents so the SUB arc
- * faces the shape interior (dent), not the outer cookie-cutter side.
+ * Jointly pick tangents for ADD → S…S → ADD (avoids zigzag pinches).
+ * Far ADD↔SUB: internal tangents. Adjacent/touching: inward external
+ * (internal tangents degenerate at d=2R and force 180° corner wraps).
  */
-function pickConcaveTangentPair(A, S, B, centroid) {
-  const AS = equalCircleTangents(A, S, true);
-  const SB = equalCircleTangents(S, B, true);
+function pickConcaveRunTangents(prevAdd, run, nextAdd, centroid, inToPrev, outFromNext) {
+  const linkType = (A, B) => {
+    const d = Math.hypot(B.x - A.x, B.y - A.y);
+    // Touching or nearly touching equal circles → external (inner side)
+    if (d <= cellR * 2.15) return false;
+    return true; // internal
+  };
+
+  const options = [];
+  options.push(equalCircleTangents(prevAdd, run[0], linkType(prevAdd, run[0])));
+  for (let i = 0; i < run.length - 1; i++) {
+    // SUB–SUB always external (inner merged flank)
+    options.push(equalCircleTangents(run[i], run[i + 1], false));
+  }
+  options.push(
+    equalCircleTangents(
+      run[run.length - 1],
+      nextAdd,
+      linkType(run[run.length - 1], nextAdd)
+    )
+  );
+  if (options.some((o) => !o.length)) return null;
+
+  let best = null;
+  let bestScore = Infinity;
+
+  const choose = (idx, chosen) => {
+    if (idx === options.length) {
+      let score = 0;
+      for (let i = 0; i < run.length; i++) {
+        const s = scoreSubArc(run[i], chosen[i].pB, chosen[i + 1].pA, centroid);
+        if (!isFinite(s)) return;
+        score += s;
+      }
+      if (inToPrev) score += scoreAddCorner(prevAdd, inToPrev.pB, chosen[0].pA);
+      if (outFromNext) {
+        score += scoreAddCorner(
+          nextAdd,
+          chosen[chosen.length - 1].pB,
+          outFromNext.pA
+        );
+      }
+      for (const ei of [0, chosen.length - 1]) {
+        const t = chosen[ei];
+        const mx = (t.pA.x + t.pB.x) / 2;
+        const my = (t.pA.y + t.pB.y) / 2;
+        // Prefer entry/exit flanks on the interior side of the hull edge
+        score += Math.hypot(mx - centroid.x, my - centroid.y) * 0.35;
+      }
+      for (let i = 1; i < chosen.length - 1; i++) {
+        const t = chosen[i];
+        const mx = (t.pA.x + t.pB.x) / 2;
+        const my = (t.pA.y + t.pB.y) / 2;
+        score += Math.hypot(mx - centroid.x, my - centroid.y) * 0.15;
+      }
+      if (score < bestScore) {
+        bestScore = score;
+        best = chosen.slice();
+      }
+      return;
+    }
+    for (const t of options[idx]) {
+      chosen.push(t);
+      choose(idx + 1, chosen);
+      chosen.pop();
+    }
+  };
+  choose(0, []);
+  return best;
+}
+
+/**
+ * For ADD → SUB → ADD, pick tangents so the SUB arc faces inward.
+ */
+function pickConcaveTangentPair(A, S, B, centroid, inToA, outFromB) {
+  const dAS = Math.hypot(S.x - A.x, S.y - A.y);
+  const dSB = Math.hypot(B.x - S.x, B.y - S.y);
+  const AS = equalCircleTangents(A, S, dAS > cellR * 2.15);
+  const SB = equalCircleTangents(S, B, dSB > cellR * 2.15);
   let best = null;
   let bestScore = Infinity;
 
   for (const t1 of AS) {
     for (const t2 of SB) {
-      const a0 = Math.atan2(t1.pB.y - S.y, t1.pB.x - S.x);
-      const a1 = Math.atan2(t2.pA.y - S.y, t2.pA.x - S.x);
-      // CW sweep on SUB (concave) — prefer the minor arc (dent, not wrap-around)
-      let delta = a1 - a0;
-      while (delta > 0) delta -= TWO_PI;
-      while (delta <= -TWO_PI) delta += TWO_PI;
-      if (Math.abs(delta) < 0.2 || Math.abs(delta) > PI) continue;
-
-      const amid = a0 + delta / 2;
-      const mx = S.x + Math.cos(amid) * cellR;
-      const my = S.y + Math.sin(amid) * cellR;
-      // Prefer arc midpoint closer to shape centroid (inner dent)
-      const score = Math.hypot(mx - centroid.x, my - centroid.y);
+      let score = scoreSubArc(S, t1.pB, t2.pA, centroid);
+      if (!isFinite(score)) continue;
+      if (inToA) score += scoreAddCorner(A, inToA.pB, t1.pA);
+      if (outFromB) score += scoreAddCorner(B, t2.pB, outFromB.pA);
+      const mx = (t1.pA.x + t1.pB.x) / 2;
+      const my = (t1.pA.y + t1.pB.y) / 2;
+      score += Math.hypot(mx - centroid.x, my - centroid.y) * 0.35;
       if (score < bestScore) {
         bestScore = score;
         best = { t1, t2 };
-      }
-    }
-  }
-
-  // Fallback: allow larger CW arcs if nothing minor worked
-  if (!best) {
-    for (const t1 of AS) {
-      for (const t2 of SB) {
-        const a0 = Math.atan2(t1.pB.y - S.y, t1.pB.x - S.x);
-        const a1 = Math.atan2(t2.pA.y - S.y, t2.pA.x - S.x);
-        let delta = a1 - a0;
-        while (delta > 0) delta -= TWO_PI;
-        while (delta <= -TWO_PI) delta += TWO_PI;
-        if (Math.abs(delta) < 0.2) continue;
-        const amid = a0 + delta / 2;
-        const mx = S.x + Math.cos(amid) * cellR;
-        const my = S.y + Math.sin(amid) * cellR;
-        const score = Math.hypot(mx - centroid.x, my - centroid.y);
-        if (score < bestScore) {
-          bestScore = score;
-          best = { t1, t2 };
-        }
       }
     }
   }
@@ -540,23 +621,6 @@ function insertSubChain(cycle, a1, a2, chain) {
   return filtered;
 }
 
-function pickTangentToward(A, B, internal, target, preferCloser) {
-  const pair = equalCircleTangents(A, B, internal);
-  if (!pair.length) return null;
-  let best = null;
-  let bestScore = preferCloser ? Infinity : -Infinity;
-  for (const t of pair) {
-    const mx = (t.pA.x + t.pB.x) / 2;
-    const my = (t.pA.y + t.pB.y) / 2;
-    const d = Math.hypot(mx - target.x, my - target.y);
-    if (preferCloser ? d < bestScore : d > bestScore) {
-      bestScore = d;
-      best = t;
-    }
-  }
-  return best;
-}
-
 function pathFromCycle(cycle) {
   if (!cycle.length) return [];
 
@@ -592,7 +656,7 @@ function pathFromCycle(cycle) {
     }
   }
 
-  // 2) Each contiguous SUB run: ADD → S…S → ADD
+  // 2) Each contiguous SUB run: ADD → S…S → ADD (joint tangent search)
   let i = 0;
   while (i < n) {
     if (cycle[i].role !== "sub") {
@@ -601,7 +665,7 @@ function pathFromCycle(cycle) {
     }
     const start = i;
     while (i < n && cycle[i].role === "sub") i++;
-    const end = i - 1; // inclusive
+    const end = i - 1;
     const prevAdd = cycle[(start - 1 + n) % n];
     const nextAdd = cycle[(end + 1) % n];
     if (prevAdd.role !== "add" || nextAdd.role !== "add") continue;
@@ -609,25 +673,33 @@ function pathFromCycle(cycle) {
     const run = [];
     for (let k = start; k <= end; k++) run.push(cycle[k]);
 
+    const inToPrev = edgeT[(start - 2 + n) % n];
+    const outFromNext = edgeT[(end + 1) % n];
+
     if (run.length === 1) {
-      const pair = pickConcaveTangentPair(prevAdd, run[0], nextAdd, centroid);
+      const pair = pickConcaveTangentPair(
+        prevAdd,
+        run[0],
+        nextAdd,
+        centroid,
+        inToPrev,
+        outFromNext
+      );
       if (!pair) continue;
       edgeT[(start - 1 + n) % n] = pair.t1;
       edgeT[end] = pair.t2;
     } else {
-      // Entry / exit: internal tangents toward centroid
-      edgeT[(start - 1 + n) % n] = pickTangentToward(
+      const chosen = pickConcaveRunTangents(
         prevAdd,
-        run[0],
-        true,
+        run,
+        nextAdd,
         centroid,
-        true
+        inToPrev,
+        outFromNext
       );
-      edgeT[end] = pickTangentToward(run[run.length - 1], nextAdd, true, centroid, true);
-      // Between SUBs: inner external tangents (merged cut)
-      for (let k = 0; k < run.length - 1; k++) {
-        const idx = start + k;
-        edgeT[idx] = pickTangentToward(run[k], run[k + 1], false, centroid, true);
+      if (!chosen || chosen.length !== run.length + 1) continue;
+      for (let k = 0; k < chosen.length; k++) {
+        edgeT[(start - 1 + k + n) % n] = chosen[k];
       }
     }
   }
