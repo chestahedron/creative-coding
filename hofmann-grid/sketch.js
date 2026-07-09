@@ -320,162 +320,258 @@ function sampleArcDirected(cx, cy, a0, a1, ccw, steps) {
   return pts;
 }
 
-function pickExternalTangent(A, B, centroid) {
+/** Unit outward normal for a CCW edge A→B in y-down coordinates. */
+function outwardNormal(A, B) {
+  const dx = B.x - A.x;
+  const dy = B.y - A.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: dy / len, y: -dx / len };
+}
+
+/**
+ * Exterior common tangent for ADD→ADD on a CCW cycle.
+ * Picks the flank on the outward side of AB (works for 2-point pills
+ * where the centroid lies on the segment and side-tests collapse).
+ */
+function pickExternalTangent(A, B) {
   const pair = equalCircleTangents(A, B, false);
+  if (!pair.length) return null;
+  const out = outwardNormal(A, B);
+  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
   let best = null;
   let bestScore = -Infinity;
   for (const t of pair) {
     const mx = (t.pA.x + t.pB.x) / 2;
     const my = (t.pA.y + t.pB.y) / 2;
-    const sideC = dxSide(A, B, centroid);
-    const sideM = dxSide(A, B, { x: mx, y: my });
-    // Exterior: midpoint on opposite side of centroid
-    const score =
-      (sideC * sideM < 0 ? 1000 : 0) + Math.hypot(mx - centroid.x, my - centroid.y);
-    if (score > bestScore) {
-      bestScore = score;
+    const outwardness = (mx - mid.x) * out.x + (my - mid.y) * out.y;
+    if (outwardness > bestScore) {
+      bestScore = outwardness;
       best = t;
     }
   }
   return best;
 }
 
+/** How far a point sits along the inward normal of hull edge a1→a2. */
+function inwardness(P, a1, a2) {
+  const out = outwardNormal(a1, a2);
+  const mid = { x: (a1.x + a2.x) / 2, y: (a1.y + a2.y) / 2 };
+  return -(P.x - mid.x) * out.x - (P.y - mid.y) * out.y;
+}
+
 /** Lower is better. Infinity = invalid. */
-function scoreSubArc(S, arrive, leave, centroid) {
+function scoreSubArc(S, arrive, leave, a1, a2, ccw) {
   const a0 = Math.atan2(arrive.y - S.y, arrive.x - S.x);
-  const a1 = Math.atan2(leave.y - S.y, leave.x - S.x);
-  let delta = a1 - a0;
-  while (delta > 0) delta -= TWO_PI;
-  while (delta <= -TWO_PI) delta += TWO_PI;
-  if (Math.abs(delta) < 0.15) return Infinity;
+  const a1ang = Math.atan2(leave.y - S.y, leave.x - S.x);
+  let delta = a1ang - a0;
+  if (ccw) {
+    while (delta < 0) delta += TWO_PI;
+    while (delta >= TWO_PI) delta -= TWO_PI;
+  } else {
+    while (delta > 0) delta -= TWO_PI;
+    while (delta <= -TWO_PI) delta += TWO_PI;
+  }
+
+  const ad = Math.abs(delta);
+
+  // Collinear same-side flanks → arrive≈leave (flat merged dent).
+  if (ad < 0.15) {
+    const inn = inwardness(arrive, a1, a2);
+    return inn < cellR * 0.2 ? Infinity : ad;
+  }
+
+  // Reject reverse / full-circle wraps (circle-and-reverse)
+  if (ad > PI + 0.02) return Infinity;
+  if (ad > 2.45) return Infinity;
 
   const amid = a0 + delta / 2;
   const mx = S.x + Math.cos(amid) * cellR;
   const my = S.y + Math.sin(amid) * cellR;
-  let score = Math.hypot(mx - centroid.x, my - centroid.y);
-  // Prefer minor CW dent arcs
-  if (Math.abs(delta) > PI) score += 800;
-  else score += Math.abs(delta) * 8;
-  return score;
+  const inn = inwardness({ x: mx, y: my }, a1, a2);
+  // Arc must dig into the shape (top of the cut), not sit on the outer flank
+  if (inn < cellR * 0.25) return Infinity;
+  return ad * 4 + Math.max(0, ad - HALF_PI) * 18 - inn * 3;
 }
 
-/** CCW arc on ADD between arrive→leave; tiny = sharp zigzag, ~π = bottom wrap zigzag. */
+/**
+ * CCW arc on ADD between arrive→leave.
+ * Up to ~180° is allowed (needed to enter a collinear edge dent);
+ * anything past that is a reverse wrap.
+ */
 function scoreAddCorner(node, arrive, leave) {
   const a0 = Math.atan2(arrive.y - node.y, arrive.x - node.x);
   const a1 = Math.atan2(leave.y - node.y, leave.x - node.x);
   let delta = a1 - a0;
   while (delta < 0) delta += TWO_PI;
   while (delta >= TWO_PI) delta -= TWO_PI;
-  if (delta < 0.3) return 5000; // acute pinch
-  if (delta > 2.4) return 5000; // wrapping past the corner (classic zigzag)
-  // Prefer roughly quarter-turn corners
-  return Math.abs(delta - HALF_PI) * 40;
+  if (delta < 0.35 || delta > PI + 0.05) return Infinity;
+  return Math.abs(delta - HALF_PI) * 25 + Math.max(0, delta - 2.2) * 50;
+}
+
+function tangentInwardness(t, a1, a2) {
+  const mx = (t.pA.x + t.pB.x) / 2;
+  const my = (t.pA.y + t.pB.y) / 2;
+  return inwardness({ x: mx, y: my }, a1, a2);
+}
+
+/** Unit tangent direction of a circle arc at contact P (ccw or cw). */
+function arcDirAt(C, P, ccw) {
+  const a = Math.atan2(P.y - C.y, P.x - C.x);
+  return ccw
+    ? { x: -Math.sin(a), y: Math.cos(a) }
+    : { x: Math.sin(a), y: -Math.cos(a) };
 }
 
 /**
- * Jointly pick tangents for ADD → S…S → ADD (avoids zigzag pinches).
- * Far ADD↔SUB: internal tangents. Adjacent/touching: inward external
- * (internal tangents degenerate at d=2R and force 180° corner wraps).
+ * True if traveling A→B along tangent t matches leave/arrive arc directions.
+ * Internal tangents put circles on opposite sides of the line, so the
+ * arrive orientation is flipped relative to the leave orientation.
  */
-function pickConcaveRunTangents(prevAdd, run, nextAdd, centroid, inToPrev, outFromNext) {
-  const linkType = (A, B) => {
-    const d = Math.hypot(B.x - A.x, B.y - A.y);
-    // Touching or nearly touching equal circles → external (inner side)
-    if (d <= cellR * 2.15) return false;
-    return true; // internal
-  };
+function tangentDirectionOk(t, A, leaveCcw, B, arriveCcw) {
+  const dx = t.pB.x - t.pA.x;
+  const dy = t.pB.y - t.pA.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const dir = { x: dx / len, y: dy / len };
+  const leave = arcDirAt(A, t.pA, leaveCcw);
+  const arrive = arcDirAt(B, t.pB, arriveCcw);
+  return dir.x * leave.x + dir.y * leave.y > 0.5 &&
+    dir.x * arrive.x + dir.y * arrive.y > 0.5;
+}
 
+/** Candidate tangents for one concave-run link (drop degenerate internals). */
+function concaveLinkTangents(A, B) {
+  const ext = equalCircleTangents(A, B, false).map((t) => ({
+    ...t,
+    internal: false,
+  }));
+  const ints = equalCircleTangents(A, B, true)
+    .filter((t) => Math.hypot(t.pA.x - t.pB.x, t.pA.y - t.pB.y) > 1)
+    .map((t) => ({ ...t, internal: true }));
+  return ext.concat(ints);
+}
+
+/**
+ * Project SUB centers onto a line parallel to the cut edge a1→a2,
+ * offset slightly inward. Collinear supports get non-degenerate
+ * internal tangents (d≈2R on the lattice) and offset SUBs (img 6)
+ * share one smooth dent instead of zigzagging between rows.
+ */
+function projectRunInward(run, a1, a2) {
+  const out = outwardNormal(a1, a2);
+  const amount = Math.max(2, cellR * 0.12);
+  const dx = a2.x - a1.x;
+  const dy = a2.y - a1.y;
+  const len2 = dx * dx + dy * dy || 1;
+  return run.map((s) => {
+    let t = ((s.x - a1.x) * dx + (s.y - a1.y) * dy) / len2;
+    t = Math.max(0.05, Math.min(0.95, t));
+    return {
+      ...s,
+      x: a1.x + t * dx - out.x * amount,
+      y: a1.y + t * dy - out.y * amount,
+    };
+  });
+}
+
+/**
+ * Jointly pick tangents for ADD → S…S → ADD along a hull edge.
+ *
+ * Orientation rule: start CCW on the entry ADD. Each internal tangent
+ * flips the arc sense for the next support (circles sit on opposite
+ * sides of the tangent); externals keep it. That keeps the path C1
+ * and prevents circle-and-reverse zigzags.
+ */
+function pickConcaveRunTangents(prevAdd, run, nextAdd, inToPrev, outFromNext) {
+  const a1 = prevAdd;
+  const a2 = nextAdd;
+  const drawRun = projectRunInward(run, a1, a2);
+
+  // Nodes in the concave span: prevAdd, S…, nextAdd
+  const nodes = [prevAdd, ...drawRun, nextAdd];
   const options = [];
-  options.push(equalCircleTangents(prevAdd, run[0], linkType(prevAdd, run[0])));
-  for (let i = 0; i < run.length - 1; i++) {
-    // SUB–SUB always external (inner merged flank)
-    options.push(equalCircleTangents(run[i], run[i + 1], false));
+  for (let i = 0; i < nodes.length - 1; i++) {
+    options.push(concaveLinkTangents(nodes[i], nodes[i + 1]));
   }
-  options.push(
-    equalCircleTangents(
-      run[run.length - 1],
-      nextAdd,
-      linkType(run[run.length - 1], nextAdd)
-    )
-  );
   if (options.some((o) => !o.length)) return null;
 
   let best = null;
   let bestScore = Infinity;
+  let bestOrients = null;
 
-  const choose = (idx, chosen) => {
+  const choose = (idx, chosen, leaveCcw) => {
     if (idx === options.length) {
+      // Per-node orientations: ADD always CCW; SUBs follow the chain
+      const orients = [true]; // prevAdd CCW
+      let sense = true;
+      for (let i = 0; i < chosen.length; i++) {
+        if (chosen[i].internal) sense = !sense;
+        orients.push(sense);
+      }
+      // nextAdd must end CCW
+      if (!orients[orients.length - 1]) return;
+
       let score = 0;
-      for (let i = 0; i < run.length; i++) {
-        const s = scoreSubArc(run[i], chosen[i].pB, chosen[i + 1].pA, centroid);
+      for (let i = 0; i < drawRun.length; i++) {
+        const s = scoreSubArc(
+          drawRun[i],
+          chosen[i].pB,
+          chosen[i + 1].pA,
+          a1,
+          a2,
+          orients[i + 1]
+        );
         if (!isFinite(s)) return;
         score += s;
       }
-      if (inToPrev) score += scoreAddCorner(prevAdd, inToPrev.pB, chosen[0].pA);
+      if (inToPrev) {
+        const c = scoreAddCorner(prevAdd, inToPrev.pB, chosen[0].pA);
+        if (!isFinite(c)) return;
+        score += c;
+      }
       if (outFromNext) {
-        score += scoreAddCorner(
+        const c = scoreAddCorner(
           nextAdd,
           chosen[chosen.length - 1].pB,
           outFromNext.pA
         );
+        if (!isFinite(c)) return;
+        score += c;
       }
-      for (const ei of [0, chosen.length - 1]) {
-        const t = chosen[ei];
-        const mx = (t.pA.x + t.pB.x) / 2;
-        const my = (t.pA.y + t.pB.y) / 2;
-        // Prefer entry/exit flanks on the interior side of the hull edge
-        score += Math.hypot(mx - centroid.x, my - centroid.y) * 0.35;
-      }
-      for (let i = 1; i < chosen.length - 1; i++) {
-        const t = chosen[i];
-        const mx = (t.pA.x + t.pB.x) / 2;
-        const my = (t.pA.y + t.pB.y) / 2;
-        score += Math.hypot(mx - centroid.x, my - centroid.y) * 0.15;
+      for (const t of chosen) {
+        score -= Math.max(0, tangentInwardness(t, a1, a2));
       }
       if (score < bestScore) {
         bestScore = score;
         best = chosen.slice();
+        bestOrients = orients;
       }
       return;
     }
+
+    const A = nodes[idx];
+    const B = nodes[idx + 1];
     for (const t of options[idx]) {
+      const arriveCcw = t.internal ? !leaveCcw : leaveCcw;
+      if (!tangentDirectionOk(t, A, leaveCcw, B, arriveCcw)) continue;
       chosen.push(t);
-      choose(idx + 1, chosen);
+      choose(idx + 1, chosen, arriveCcw);
       chosen.pop();
     }
   };
-  choose(0, []);
-  return best;
+
+  choose(0, [], true);
+  if (!best) return null;
+  return {
+    tangents: best,
+    drawRun,
+    // Arc orientation for each SUB in the run (index 0 = first SUB)
+    subCcw: bestOrients.slice(1, -1),
+  };
 }
 
-/**
- * For ADD → SUB → ADD, pick tangents so the SUB arc faces inward.
- */
-function pickConcaveTangentPair(A, S, B, centroid, inToA, outFromB) {
-  const dAS = Math.hypot(S.x - A.x, S.y - A.y);
-  const dSB = Math.hypot(B.x - S.x, B.y - S.y);
-  const AS = equalCircleTangents(A, S, dAS > cellR * 2.15);
-  const SB = equalCircleTangents(S, B, dSB > cellR * 2.15);
-  let best = null;
-  let bestScore = Infinity;
-
-  for (const t1 of AS) {
-    for (const t2 of SB) {
-      let score = scoreSubArc(S, t1.pB, t2.pA, centroid);
-      if (!isFinite(score)) continue;
-      if (inToA) score += scoreAddCorner(A, inToA.pB, t1.pA);
-      if (outFromB) score += scoreAddCorner(B, t2.pB, outFromB.pA);
-      const mx = (t1.pA.x + t1.pB.x) / 2;
-      const my = (t1.pA.y + t1.pB.y) / 2;
-      score += Math.hypot(mx - centroid.x, my - centroid.y) * 0.35;
-      if (score < bestScore) {
-        bestScore = score;
-        best = { t1, t2 };
-      }
-    }
-  }
-
-  return best;
+/** ADD → SUB → ADD (single subtract). */
+function pickConcaveTangentPair(A, S, B, inToA, outFromB) {
+  return pickConcaveRunTangents(A, [S], B, inToA, outFromB);
 }
 
 /**
@@ -634,29 +730,26 @@ function pathFromCycle(cycle) {
     return pts;
   }
 
+  // Two ADD supports with no SUBs → classic exterior pill (both flanks)
+  if (cycle.length === 2 && cycle.every((p) => p.role === "add")) {
+    return pillPathFromPair(cycle[0], cycle[1]);
+  }
+
   const n = cycle.length;
-  const adds = cycle.filter((p) => p.role === "add");
-  const centroid = (adds.length ? adds : cycle).reduce(
-    (s, p, _, arr) => ({
-      x: s.x + p.x / arr.length,
-      y: s.y + p.y / arr.length,
-    }),
-    { x: 0, y: 0 }
-  );
 
   /** @type {(null|{pA:any,pB:any})[]} */
   const edgeT = Array(n).fill(null);
 
-  // 1) Outer ADD→ADD flanks
+  // 1) Outer ADD→ADD flanks (outward of each CCW edge)
   for (let i = 0; i < n; i++) {
     const A = cycle[i];
     const B = cycle[(i + 1) % n];
     if (A.role === "add" && B.role === "add") {
-      edgeT[i] = pickExternalTangent(A, B, centroid);
+      edgeT[i] = pickExternalTangent(A, B);
     }
   }
 
-  // 2) Each contiguous SUB run: ADD → S…S → ADD (joint tangent search)
+  // 2) Each contiguous SUB run: ADD → S…S → ADD
   let i = 0;
   while (i < n) {
     if (cycle[i].role !== "sub") {
@@ -676,31 +769,25 @@ function pathFromCycle(cycle) {
     const inToPrev = edgeT[(start - 2 + n) % n];
     const outFromNext = edgeT[(end + 1) % n];
 
-    if (run.length === 1) {
-      const pair = pickConcaveTangentPair(
-        prevAdd,
-        run[0],
-        nextAdd,
-        centroid,
-        inToPrev,
-        outFromNext
-      );
-      if (!pair) continue;
-      edgeT[(start - 1 + n) % n] = pair.t1;
-      edgeT[end] = pair.t2;
-    } else {
-      const chosen = pickConcaveRunTangents(
-        prevAdd,
-        run,
-        nextAdd,
-        centroid,
-        inToPrev,
-        outFromNext
-      );
-      if (!chosen || chosen.length !== run.length + 1) continue;
-      for (let k = 0; k < chosen.length; k++) {
-        edgeT[(start - 1 + k + n) % n] = chosen[k];
-      }
+    const chosen = pickConcaveRunTangents(
+      prevAdd,
+      run,
+      nextAdd,
+      inToPrev,
+      outFromNext
+    );
+    if (!chosen || chosen.tangents.length !== run.length + 1) continue;
+    for (let k = 0; k < chosen.tangents.length; k++) {
+      edgeT[(start - 1 + k + n) % n] = chosen.tangents[k];
+    }
+    // Draw SUB arcs about the nudged centers; store arc orientation
+    for (let k = 0; k < run.length; k++) {
+      cycle[start + k] = {
+        ...cycle[start + k],
+        x: chosen.drawRun[k].x,
+        y: chosen.drawRun[k].y,
+        ccw: chosen.subCcw[k],
+      };
     }
   }
 
@@ -715,18 +802,67 @@ function pathFromCycle(cycle) {
     const leave = next.pA;
     const a0 = Math.atan2(arrive.y - node.y, arrive.x - node.x);
     const a1 = Math.atan2(leave.y - node.y, leave.x - node.x);
-    const arc = sampleArcDirected(
-      node.x,
-      node.y,
-      a0,
-      a1,
-      node.role === "add",
-      ARC_STEPS
-    );
+    // ADD always CCW; SUB uses orientation from the tangent chain
+    const ccw = node.role === "add" ? true : !!node.ccw;
+    const arc = sampleArcDirected(node.x, node.y, a0, a1, ccw, ARC_STEPS);
     for (const p of arc) appendPoint(path, p);
     appendPoint(path, leave);
     appendPoint(path, next.pB);
   }
+
+  return path;
+}
+
+/** Capsule from two equal circles using both exterior tangents + endcaps. */
+function pillPathFromPair(A, B) {
+  const pair = equalCircleTangents(A, B, false);
+  if (pair.length < 2) return null;
+
+  // Order flanks so we walk A→B on one side, B→A on the other (CCW overall)
+  const out = outwardNormal(A, B);
+  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+  const scored = pair.map((t) => {
+    const mx = (t.pA.x + t.pB.x) / 2;
+    const my = (t.pA.y + t.pB.y) / 2;
+    return {
+      t,
+      side: (mx - mid.x) * out.x + (my - mid.y) * out.y,
+    };
+  });
+  scored.sort((a, b) => b.side - a.side);
+  const outer = scored[0].t;
+  const inner = scored[1].t;
+
+  const path = [];
+  // Cap at A from inner-arrive to outer-leave (CCW)
+  const aArrive = inner.pA;
+  const aLeave = outer.pA;
+  let arc = sampleArcDirected(
+    A.x,
+    A.y,
+    Math.atan2(aArrive.y - A.y, aArrive.x - A.x),
+    Math.atan2(aLeave.y - A.y, aLeave.x - A.x),
+    true,
+    ARC_STEPS * 2
+  );
+  for (const p of arc) appendPoint(path, p);
+  appendPoint(path, outer.pA);
+  appendPoint(path, outer.pB);
+
+  // Cap at B from outer-arrive to inner-leave (CCW)
+  const bArrive = outer.pB;
+  const bLeave = inner.pB;
+  arc = sampleArcDirected(
+    B.x,
+    B.y,
+    Math.atan2(bArrive.y - B.y, bArrive.x - B.x),
+    Math.atan2(bLeave.y - B.y, bLeave.x - B.x),
+    true,
+    ARC_STEPS * 2
+  );
+  for (const p of arc) appendPoint(path, p);
+  appendPoint(path, inner.pB);
+  appendPoint(path, inner.pA);
 
   return path;
 }
