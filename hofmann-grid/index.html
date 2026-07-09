@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hofmann Grid</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="panel">
+        <h1>Hofmann<br />Grid</h1>
+        <p class="hint">
+          Add supports wrap with tangents. Subtract inserts a concave support
+          between two Add anchors. Shift+drag erases.
+        </p>
+
+        <div class="tools" role="group" aria-label="Brush">
+          <button class="tool active" data-tool="add" type="button">
+            Add <kbd>1</kbd>
+          </button>
+          <button class="tool" data-tool="sub" type="button">
+            Subtract <kbd>2</kbd>
+          </button>
+          <button class="tool" data-tool="erase" type="button">
+            Erase <kbd>E</kbd>
+          </button>
+        </div>
+
+        <label>
+          <span>Grid size <em id="gridVal">8</em></span>
+          <input id="grid" type="range" min="3" max="16" step="1" value="8" />
+        </label>
+
+        <label>
+          <span>Circle size <em id="dotVal">100%</em></span>
+          <input id="dot" type="range" min="55" max="140" step="1" value="100" />
+        </label>
+
+        <div class="tools" role="group" aria-label="Style">
+          <button class="style active" data-style="fill" type="button">Fill</button>
+          <button class="style" data-style="outline" type="button">Outline</button>
+        </div>
+
+        <label class="check">
+          <input id="showGrid" type="checkbox" checked />
+          <span>Show grid</span>
+        </label>
+
+        <label class="check">
+          <input id="manualAnchors" type="checkbox" />
+          <span>Manual anchors</span>
+        </label>
+        <p id="anchorStatus" class="status" hidden></p>
+
+        <div class="buttons">
+          <button id="clear" type="button">Clear <kbd>C</kbd></button>
+          <button id="save" class="primary" type="button">Save PNG <kbd>S</kbd></button>
+        </div>
+      </aside>
+
+      <main id="stage"></main>
+    </div>
+
+    <script src="sketch.js"></script>
+  </body>
+</html>
