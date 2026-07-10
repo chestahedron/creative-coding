@@ -205,9 +205,10 @@ function drawPins() {
     if (showOrder) {
       fill(INK);
       noStroke();
-      textAlign(CENTER, CENTER);
+      textAlign(CENTER, BASELINE);
       textSize(Math.max(10, spacing * 0.28));
-      text(String(i + 1), x, y + 0.5);
+      // Digits sit on the baseline with little descent — center on ascent.
+      text(String(i + 1), x, y + textAscent() * 0.5);
     }
   }
 

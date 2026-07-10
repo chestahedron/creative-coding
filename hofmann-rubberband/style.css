@@ -141,6 +141,12 @@ label.check {
   cursor: pointer;
 }
 
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 input[type="checkbox"] {
   accent-color: var(--ink);
   width: 14px;
