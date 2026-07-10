@@ -27,6 +27,9 @@ let showOrder = true;
 let pins = [];
 /** Index into pins, or -1 */
 let selected = -1;
+/** Undo stack for place / move / delete / clear */
+let undoStack = [];
+const UNDO_MAX = 80;
 
 let spacing = 40;
 let cellR = 20;
@@ -98,7 +101,30 @@ function makeGrid(n) {
   selected = newSelected;
 }
 
+function snapshotPins() {
+  return {
+    pins: pins.map((p) => ({ c: p.c, r: p.r })),
+    selected,
+  };
+}
+
+function pushUndo() {
+  undoStack.push(snapshotPins());
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+}
+
+function undoLast() {
+  if (!undoStack.length) return;
+  const prev = undoStack.pop();
+  pins = prev.pins.map((p) => ({ c: p.c, r: p.r }));
+  selected =
+    prev.selected >= 0 && prev.selected < pins.length ? prev.selected : -1;
+  lastPath = null;
+}
+
 function clearPins() {
+  if (!pins.length) return;
+  pushUndo();
   pins = [];
   selected = -1;
   lastPath = null;
@@ -256,13 +282,18 @@ function placeOrSelectPin(c, r) {
     selected = idx;
     return;
   }
-  pins.push({ c, r });
-  selected = pins.length - 1;
+  // Insert after the selected pin so it becomes selected+1 in visit order.
+  // With nothing selected, append to the end of the cycle.
+  pushUndo();
+  const insertAt = selected >= 0 ? selected + 1 : pins.length;
+  pins.splice(insertAt, 0, { c, r });
+  selected = insertAt;
 }
 
 function erasePin(c, r) {
   const idx = pinIndex(c, r);
   if (idx < 0) return;
+  pushUndo();
   pins.splice(idx, 1);
   if (selected === idx) selected = pins.length ? Math.min(idx, pins.length - 1) : -1;
   else if (selected > idx) selected -= 1;
@@ -270,6 +301,7 @@ function erasePin(c, r) {
 
 function deleteSelected() {
   if (selected < 0 || selected >= pins.length) return;
+  pushUndo();
   const idx = selected;
   pins.splice(idx, 1);
   if (!pins.length) selected = -1;
@@ -283,6 +315,7 @@ function moveSelected(dc, dr) {
   const nr = p.r + dr;
   if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) return;
   if (pinIndex(nc, nr) >= 0) return;
+  pushUndo();
   p.c = nc;
   p.r = nr;
 }
@@ -320,6 +353,11 @@ function keyPressed() {
   }
   if (keyCode === BACKSPACE || keyCode === DELETE) {
     deleteSelected();
+    return false;
+  }
+  // Shift+Z undoes last place / move / delete / clear
+  if ((key === "z" || key === "Z") && keyIsDown(SHIFT)) {
+    undoLast();
     return false;
   }
   if (key === "1") setTool("pin");
