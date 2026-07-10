@@ -6,3 +6,24 @@ Thumbs.db
 node_modules/
 dist/
 .cache/
+
+# Unused Remix Icon category packs (keep only tracked icons under __ALL)
+assets/icons/Arrows/
+assets/icons/Buildings/
+assets/icons/Business/
+assets/icons/Communication/
+assets/icons/Design/
+assets/icons/Development/
+assets/icons/Device/
+assets/icons/Document/
+assets/icons/Editor/
+assets/icons/Finance/
+assets/icons/Food/
+assets/icons/Health & Medical/
+assets/icons/Logos/
+assets/icons/Map/
+assets/icons/Media/
+assets/icons/Others/
+assets/icons/System/
+assets/icons/User & Faces/
+assets/icons/Weather/

@@ -1,6 +1,6 @@
 @font-face {
   font-family: "Kanso Code";
-  src: url("../assets/fonts/KansoCode154-Regular.otf") format("opentype");
+  src: url("../../assets/fonts/KansoCode154-Regular.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -13,23 +13,24 @@
 }
 
 :root {
-  --paper: #ece7dd;
-  --ink: #1c1b18;
-  --line: #c4bcab;
-  --muted: #6f6a5e;
+  /* Palette as HSB (S ≈ 60% of prior); CSS uses equivalent hsl() */
+  --paper: hsl(40 40% 95%); /* hsb(42, 2.5%, 95.7%) */
+  --canvas: hsl(40 40% 97%); /* hsb(40, 2.2%, 98.4%) */
+  --line: hsl(30 20% 85%); /* hsb(41, 7.7%, 76.9%) */
+  --muted: hsl(30 5% 40%); /* hsb(42, 9.2%, 43.5%) */
+  --ink: hsl(25 5% 10%); /* hsb(45, 8.6%, 11%) */
   --font: "Kanso Code", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --icon-edit: url("../assets/icons/__ALL/edit-line.svg");
-  --icon-eye: url("../assets/icons/__ALL/eye-line.svg");
-  --icon-pin: url("../assets/icons/__ALL/map-pin-line.svg");
-  --icon-eraser: url("../assets/icons/__ALL/eraser-line.svg");
-  --icon-clear: url("../assets/icons/__ALL/delete-bin-line.svg");
-  --icon-download: url("../assets/icons/__ALL/download-line.svg");
-  --icon-up: url("../assets/icons/__ALL/arrow-up-line.svg");
-  --icon-down: url("../assets/icons/__ALL/arrow-down-line.svg");
-  --icon-left: url("../assets/icons/__ALL/arrow-left-line.svg");
-  --icon-right: url("../assets/icons/__ALL/arrow-right-line.svg");
-  --icon-backspace: url("../assets/icons/__ALL/delete-back-line.svg");
-  --icon-space: url("../assets/icons/__ALL/space.svg");
+  --icon-edit: url("../../assets/icons/__ALL/edit-line.svg");
+  --icon-eye: url("../../assets/icons/__ALL/eye-line.svg");
+  --icon-pin: url("../../assets/icons/__ALL/map-pin-line.svg");
+  --icon-eraser: url("../../assets/icons/__ALL/eraser-line.svg");
+  --icon-clear: url("../../assets/icons/__ALL/delete-bin-line.svg");
+  --icon-download: url("../../assets/icons/__ALL/download-line.svg");
+  --icon-up: url("../../assets/icons/__ALL/arrow-up-line.svg");
+  --icon-down: url("../../assets/icons/__ALL/arrow-down-line.svg");
+  --icon-left: url("../../assets/icons/__ALL/arrow-left-line.svg");
+  --icon-right: url("../../assets/icons/__ALL/arrow-right-line.svg");
+  --icon-backspace: url("../../assets/icons/__ALL/delete-back-line.svg");
 }
 
 html {
@@ -63,7 +64,7 @@ body {
   font-size: 1.375rem;
   font-weight: 400;
   letter-spacing: -0.02em;
-  line-height: 1.1;
+  line-height: 1.2;
   text-transform: uppercase;
 }
 
@@ -263,13 +264,8 @@ button {
   mask-image: var(--icon-backspace);
 }
 
-.icon[data-icon="space"] {
-  -webkit-mask-image: var(--icon-space);
-  mask-image: var(--icon-space);
-}
-
 button:hover {
-  background: rgba(28, 27, 24, 0.08);
+  background: color-mix(in srgb, var(--line) 50%, transparent);
 }
 
 button.tool.active,
@@ -282,7 +278,7 @@ button.primary {
 button.tool.active:hover,
 button.mode.active:hover,
 button.primary:hover {
-  background: #000;
+  background: color-mix(in srgb, var(--muted) 50%, var(--ink));
 }
 
 kbd {
@@ -309,6 +305,13 @@ kbd .icon {
   height: 0.5625rem;
 }
 
+kbd.kbd-space {
+  width: auto;
+  min-width: 3.5em;
+  padding: 0 0.45em;
+  letter-spacing: 0.04em;
+}
+
 .hint kbd {
   color: var(--ink);
   opacity: 0.85;
@@ -332,7 +335,8 @@ button.primary kbd {
 
 #stage canvas {
   cursor: crosshair;
-  box-shadow: 0 0.125rem 1.5rem rgba(28, 27, 24, 0.12);
+  border: 0.0625rem solid var(--line);
+  background: var(--canvas);
   display: block;
 }
 

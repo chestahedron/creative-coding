@@ -3,9 +3,15 @@
  * Geometry lives in geometry.js (HofmannRubberband).
  */
 const ARC_STEPS = 18;
-const PAPER = "#ece7dd";
-const INK = "#1c1b18";
-const GRID_LINE = "rgba(28, 27, 24, 0.14)";
+/** Shared HSB palette (0–360, 0–100, 0–100); S ≈ 60% of prior.
+ *  Named PALETTE so it does not shadow p5's HSB colorMode constant. */
+const PALETTE = {
+  canvas: [40, 2.2, 98.4],
+  line: [41, 7.7, 76.9],
+  ink: [45, 8.6, 11],
+};
+/** CSS hsl() for SVG export — matches PALETTE.ink */
+const INK_CSS = "hsl(45 4.5% 10.5%)";
 
 function geom() {
   const g = window.HofmannRubberband;
@@ -61,12 +67,14 @@ function setup() {
   const s = canvasSize();
   const canvas = createCanvas(s, s);
   canvas.parent("stage");
+  colorMode(HSB, 360, 100, 100);
   pixelDensity(Math.min(2, window.devicePixelRatio || 1));
   layer = createGraphics(width, height);
   layer.pixelDensity(pixelDensity());
+  layer.colorMode(HSB, 360, 100, 100);
 
   // Load async — never block setup (preload 404s leave a blank canvas)
-  loadFont("../assets/fonts/KansoCode154-Regular.otf", (f) => {
+  loadFont("../../assets/fonts/KansoCode154-Regular.otf", (f) => {
     uiFont = f;
     textFont(uiFont);
   });
@@ -83,7 +91,7 @@ function viewingPreview() {
 }
 
 function draw() {
-  background(PAPER);
+  background(...PALETTE.canvas);
   try {
     const preview = viewingPreview();
     if (showGrid && !preview) drawGuideGrid();
@@ -182,8 +190,8 @@ function cellAt(mx, my) {
 
 function drawGuideGrid() {
   noFill();
-  stroke(GRID_LINE);
-  strokeWeight(Math.max(1, spacing * 0.014));
+  stroke(...PALETTE.line);
+  strokeWeight(1);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const { x, y } = cellCenter(c, r);
@@ -194,7 +202,7 @@ function drawGuideGrid() {
 
 function drawOrderLines() {
   if (!showOrder || pins.length < 2) return;
-  stroke(28, 27, 24, 55);
+  stroke(...PALETTE.line);
   strokeWeight(1);
   drawingContext.setLineDash([6, 6]);
   noFill();
@@ -210,10 +218,9 @@ function drawOrderLines() {
 }
 
 function drawPins() {
-  // Order lines first; opaque paper discs then cover them under each pin
+  // Order lines first; opaque canvas discs then cover them under each pin
   drawOrderLines();
 
-  const gridStroke = Math.max(1, spacing * 0.014);
   for (let i = 0; i < pins.length; i++) {
     const { x, y } = cellCenter(pins[i].c, pins[i].r);
     const isSel = i === selected;
@@ -221,30 +228,25 @@ function drawPins() {
 
     // Opaque knock-out so dashed order lines never show through the marker
     noStroke();
-    fill(PAPER);
+    fill(...PALETTE.canvas);
     circle(x, y, markerR * 2 + 2);
 
-    // Marker under the number — selected is inverted (solid dark + white digit)
-    if (isSel) {
-      fill(INK);
-    } else {
-      // Opaque stand-in for rgba(28,27,24,40) over paper
-      fill(220, 216, 208);
-    }
+    // Marker under the number — selected is inverted (solid dark + light digit)
+    fill(...(isSel ? PALETTE.ink : PALETTE.line));
     circle(x, y, markerR * 2);
 
     // Selection ring = same diameter as the grid circle
     if (isSel) {
       noFill();
-      stroke(INK);
-      strokeWeight(gridStroke);
+      stroke(...PALETTE.ink);
+      strokeWeight(1);
       circle(x, y, cellR * 2);
     }
 
     if (showOrder) {
       const label = String(i + 1);
       const ts = Math.max(10, spacing * 0.28);
-      fill(isSel ? PAPER : INK);
+      fill(...(isSel ? PALETTE.canvas : PALETTE.ink));
       noStroke();
       textSize(ts);
       textAlign(CENTER, BASELINE);
@@ -286,7 +288,7 @@ function drawShape() {
     // Filled form (Preview mode, or Space held in Edit)
     layer.clear();
     layer.noStroke();
-    layer.fill(INK);
+    layer.fill(...PALETTE.ink);
     layer.beginShape();
     for (const p of path) layer.vertex(p.x, p.y);
     layer.endShape(CLOSE);
@@ -295,7 +297,7 @@ function drawShape() {
   }
 
   noFill();
-  stroke(INK);
+  stroke(...PALETTE.ink);
   strokeWeight(2);
   beginShape();
   for (const p of path) vertex(p.x, p.y);
@@ -469,11 +471,11 @@ function buildSVG() {
 
   if (segments && segments.length) {
     const d = geom().segmentsToSvgD(segments);
-    if (d) parts.push(`<path d="${d}" fill="${INK}" stroke="none"/>`);
+    if (d) parts.push(`<path d="${d}" fill="${INK_CSS}" stroke="none"/>`);
   } else if (path && path.length >= 3) {
     // Fallback polyline (should be rare)
     parts.push(
-      `<path d="${pathToSvgD(path)}" fill="${INK}" stroke="none"/>`
+      `<path d="${pathToSvgD(path)}" fill="${INK_CSS}" stroke="none"/>`
     );
   }
 
@@ -533,7 +535,9 @@ function wireUi() {
 function windowResized() {
   const s = canvasSize();
   resizeCanvas(s, s);
+  colorMode(HSB, 360, 100, 100);
   layer = createGraphics(width, height);
   layer.pixelDensity(pixelDensity());
+  layer.colorMode(HSB, 360, 100, 100);
   layoutGrid();
 }
