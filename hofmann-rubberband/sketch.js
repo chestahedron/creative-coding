@@ -78,10 +78,15 @@ function setup() {
   updateStatus(null);
 }
 
+function viewingPreview() {
+  // Hold Shift to peek at the filled form without leaving Edit
+  return mode === "preview" || keyIsDown(SHIFT);
+}
+
 function draw() {
   background(PAPER);
   try {
-    const preview = mode === "preview";
+    const preview = viewingPreview();
     if (showGrid && !preview) drawGuideGrid();
     if (!preview) drawPins();
     drawShape();
@@ -248,24 +253,24 @@ function drawShape() {
   if (!path || path.length < 3) return;
   lastPath = path;
 
-  if (mode === "edit") {
-    noFill();
-    stroke(INK);
-    strokeWeight(2);
-    beginShape();
-    for (const p of path) vertex(p.x, p.y);
-    endShape(CLOSE);
+  if (viewingPreview()) {
+    // Filled form (Preview mode, or Shift held in Edit)
+    layer.clear();
+    layer.noStroke();
+    layer.fill(INK);
+    layer.beginShape();
+    for (const p of path) layer.vertex(p.x, p.y);
+    layer.endShape(CLOSE);
+    image(layer, 0, 0);
     return;
   }
 
-  // Preview: filled form only
-  layer.clear();
-  layer.noStroke();
-  layer.fill(INK);
-  layer.beginShape();
-  for (const p of path) layer.vertex(p.x, p.y);
-  layer.endShape(CLOSE);
-  image(layer, 0, 0);
+  noFill();
+  stroke(INK);
+  strokeWeight(2);
+  beginShape();
+  for (const p of path) vertex(p.x, p.y);
+  endShape(CLOSE);
 }
 
 function updateStatus(result) {
@@ -332,7 +337,7 @@ function moveSelected(dc, dr) {
 }
 
 function mousePressed() {
-  if (mode === "preview") return;
+  if (viewingPreview()) return;
   if (mouseX < 0 || mouseY < 0 || mouseX > width || mouseY > height) return;
   const cell = cellAt(mouseX, mouseY);
   if (!cell) {
