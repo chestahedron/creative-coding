@@ -9,6 +9,11 @@ projects/
 index.html
 ```
 
+## Live
+
+- Site: https://chestahedron.github.io/creative-coding/
+- Tool: https://chestahedron.github.io/creative-coding/projects/hofmann-rubberband/
+
 ## Local
 
 Serve the **repo root** (so `assets/` resolves):
@@ -22,15 +27,6 @@ Then open:
 - http://localhost:8780/
 - http://localhost:8780/projects/hofmann-rubberband/
 
-## Deploy (Cloudflare Pages)
+## Deploy (GitHub Pages)
 
-1. Push this repo to GitHub.
-2. In [Cloudflare Dashboard](https://dash.cloudflare.com/) → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**.
-3. Select the repo.
-4. Build settings:
-   - **Framework preset:** None
-   - **Build command:** *(leave empty)*
-   - **Build output directory:** `/` (repo root)
-5. Deploy. Share `https://<project>.pages.dev/projects/hofmann-rubberband/`.
-
-No build step — Pages serves the static files as-is.
+Pages is enabled from the `main` branch root. Push to `main` and the site updates automatically.
