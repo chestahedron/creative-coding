@@ -206,9 +206,32 @@
     return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
   }
 
+  function pathFromSegments(segments, arcSteps) {
+    const steps = arcSteps || 18;
+    const path = [];
+    for (const seg of segments) {
+      if (seg.type === "arc") {
+        const pts = sampleArcDirected(
+          seg.cx,
+          seg.cy,
+          seg.r,
+          seg.a0,
+          seg.a1,
+          seg.ccw,
+          steps
+        );
+        for (const p of pts) appendPoint(path, p);
+      } else if (seg.type === "line") {
+        appendPoint(path, { x: seg.x1, y: seg.y1 });
+        appendPoint(path, { x: seg.x2, y: seg.y2 });
+      }
+    }
+    return path;
+  }
+
   /**
    * SVG path `d` from structured arc/line segments.
-   * Arcs use elliptical-arc `A` (exact circles); tangents use `L`.
+   * Arcs use `A`, tangents `L`.
    */
   function segmentsToSvgD(segments) {
     if (!segments || !segments.length) return "";
@@ -521,7 +544,8 @@
    * @returns {{ path, segments, orients, ok, reason, selfIntersecting }}
    */
   function buildRubberBand(pins, radius, arcSteps) {
-    const steps = arcSteps || 18;
+    const steps = typeof arcSteps === "number" ? arcSteps : 18;
+
     if (!pins || !pins.length) {
       return {
         path: [],

@@ -22,7 +22,6 @@ let rows = 5;
 let dotScale = 1.0;
 let showGrid = true;
 let showOrder = true;
-
 /** Visit-order pin cycle: [{c,r}, ...] */
 let pins = [];
 /** Index into pins, or -1 */
@@ -79,8 +78,8 @@ function setup() {
 }
 
 function viewingPreview() {
-  // Hold Shift to peek at the filled form without leaving Edit
-  return mode === "preview" || keyIsDown(SHIFT);
+  // Hold Space to peek at the filled form without leaving Edit
+  return mode === "preview" || keyIsDown(32);
 }
 
 function draw() {
@@ -284,7 +283,7 @@ function drawShape() {
   lastSegments = result.segments || null;
 
   if (viewingPreview()) {
-    // Filled form (Preview mode, or Shift held in Edit)
+    // Filled form (Preview mode, or Space held in Edit)
     layer.clear();
     layer.noStroke();
     layer.fill(INK);
@@ -382,6 +381,8 @@ function mousePressed() {
 }
 
 function keyPressed() {
+  // Space: hold for temporary preview (also block page scroll)
+  if (keyCode === 32) return false;
   if (keyCode === LEFT_ARROW) {
     moveSelected(-1, 0);
     return false;

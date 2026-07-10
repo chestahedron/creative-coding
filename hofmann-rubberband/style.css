@@ -29,7 +29,7 @@
   --icon-left: url("../assets/icons/__ALL/arrow-left-line.svg");
   --icon-right: url("../assets/icons/__ALL/arrow-right-line.svg");
   --icon-backspace: url("../assets/icons/__ALL/delete-back-line.svg");
-  --icon-shift: url("../assets/icons/__ALL/arrow-up-s-line.svg");
+  --icon-space: url("../assets/icons/__ALL/space.svg");
 }
 
 html {
@@ -263,9 +263,9 @@ button {
   mask-image: var(--icon-backspace);
 }
 
-.icon[data-icon="shift"] {
-  -webkit-mask-image: var(--icon-shift);
-  mask-image: var(--icon-shift);
+.icon[data-icon="space"] {
+  -webkit-mask-image: var(--icon-space);
+  mask-image: var(--icon-space);
 }
 
 button:hover {
