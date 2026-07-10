@@ -37,8 +37,10 @@ let pins = [];
 let selected = -1;
 /** Undo stack for place / move / delete / clear */
 let undoStack = [];
+let redoStack = [];
 const UNDO_MAX = 80;
-const DOT_PRESETS = [50, 66, 75, 95];
+const DOT_PRESETS = [50, 66, 75, 90];
+const GRID_PRESETS = [4, 5, 7, 9];
 
 let spacing = 40;
 let cellR = 20;
@@ -135,14 +137,29 @@ function snapshotPins() {
 function pushUndo() {
   undoStack.push(snapshotPins());
   if (undoStack.length > UNDO_MAX) undoStack.shift();
+  redoStack = [];
 }
 
 function undoLast() {
   if (!undoStack.length) return;
+  redoStack.push(snapshotPins());
+  if (redoStack.length > UNDO_MAX) redoStack.shift();
   const prev = undoStack.pop();
   pins = prev.pins.map((p) => ({ c: p.c, r: p.r }));
   selected =
     prev.selected >= 0 && prev.selected < pins.length ? prev.selected : -1;
+  lastPath = null;
+  lastSegments = null;
+}
+
+function redoLast() {
+  if (!redoStack.length) return;
+  undoStack.push(snapshotPins());
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  const next = redoStack.pop();
+  pins = next.pins.map((p) => ({ c: p.c, r: p.r }));
+  selected =
+    next.selected >= 0 && next.selected < pins.length ? next.selected : -1;
   lastPath = null;
   lastSegments = null;
 }
@@ -606,7 +623,8 @@ function drawPins() {
   for (let i = 0; i < pins.length; i++) {
     const { x, y } = cellCenter(pins[i].c, pins[i].r);
     const isSel = i === selected;
-    const markerR = Math.min(cellR, spacing * 0.22);
+    // Pin markers stay at 33% of cell spacing (independent of circle size)
+    const markerR = (spacing * 0.33) / 2;
 
     // Opaque knock-out so dashed order lines never show through the marker
     noStroke();
@@ -627,7 +645,7 @@ function drawPins() {
 
     if (showOrder) {
       const label = String(i + 1);
-      const ts = Math.max(10, spacing * 0.28);
+      const ts = Math.max(9, spacing * 0.2);
       fill(...(isSel ? PALETTE.canvas : PALETTE.ink));
       noStroke();
       textSize(ts);
@@ -774,9 +792,13 @@ function keyPressed() {
     deleteSelected();
     return false;
   }
-  // Z undoes last place / move / delete / clear
+  // Z undoes / Y redoes last place / move / delete / clear / generate
   if (key === "z" || key === "Z") {
     undoLast();
+    return false;
+  }
+  if (key === "y" || key === "Y") {
+    redoLast();
     return false;
   }
   if (key === "g" || key === "G") generatePins();
@@ -863,8 +885,25 @@ function syncDotPresets(pct) {
   });
 }
 
+function syncGridPresets(n) {
+  document.querySelectorAll(".presets [data-grid]").forEach((btn) => {
+    btn.classList.toggle("active", Number(btn.dataset.grid) === n);
+  });
+}
+
+function setGridSize(size) {
+  const n = Math.max(3, Math.min(16, Math.round(size)));
+  const grid = document.getElementById("grid");
+  const gridVal = document.getElementById("gridVal");
+  if (grid) grid.value = String(n);
+  if (gridVal) gridVal.textContent = String(n);
+  makeGrid(n);
+  syncGridPresets(GRID_PRESETS.includes(n) ? n : -1);
+  layoutGrid();
+}
+
 function setDotPercent(pct) {
-  const n = Math.max(50, Math.min(95, Math.round(pct)));
+  const n = Math.max(33, Math.min(95, Math.round(pct)));
   const dot = document.getElementById("dot");
   const dotVal = document.getElementById("dotVal");
   if (dot) dot.value = String(n);
@@ -880,13 +919,13 @@ function wireUi() {
   });
 
   const grid = document.getElementById("grid");
-  const gridVal = document.getElementById("gridVal");
   grid.addEventListener("input", () => {
-    const n = Number(grid.value);
-    gridVal.textContent = String(n);
-    makeGrid(n);
-    layoutGrid();
+    setGridSize(Number(grid.value));
   });
+  document.querySelectorAll(".presets [data-grid]").forEach((btn) => {
+    btn.addEventListener("click", () => setGridSize(Number(btn.dataset.grid)));
+  });
+  syncGridPresets(gridN);
 
   const dot = document.getElementById("dot");
   dot.addEventListener("input", () => {
