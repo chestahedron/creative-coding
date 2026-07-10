@@ -89,6 +89,15 @@ body {
   gap: 0.25rem;
 }
 
+.hint-sep {
+  display: inline-block;
+  width: 0.0625rem;
+  height: 0.9em;
+  margin: 0 0.35rem;
+  background: var(--line);
+  flex-shrink: 0;
+}
+
 .status {
   font-size: 0.6875rem;
   color: var(--muted);

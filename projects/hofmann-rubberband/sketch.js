@@ -40,13 +40,15 @@ let redoStack = [];
 const UNDO_MAX = 80;
 const DOT_PRESETS = [50, 66, 75, 90];
 const GRID_PRESETS = [4, 5, 7, 9];
-/** Pin-density bands for Generate (never exceeds MAX_GEN_PINS). */
-const GEN_DENSITY = {
+/** Pin-count bands for Generate (never exceeds MAX_GEN_PINS). */
+const GEN_PINS = {
   less: { fill: [0.25, 0.4], pins: [6, 11] },
   medium: { fill: [0.4, 0.58], pins: [10, 17] },
-  more: { fill: [0.58, 0.75], pins: [16, 24] },
+  more: { fill: [0.65, 0.9], pins: [16, 24] },
 };
-let genDensity = "medium";
+let genPins = "more";
+/** Compact vs spread growth — fixed to spread (less density). */
+const genCompact = "less";
 
 let spacing = 40;
 let cellR = 20;
@@ -239,8 +241,8 @@ function pickSpreadSeed() {
 
 /**
  * Grow a 4-connected blob.
- * useSpread=false (grids ≤6): random frontier — varied compact shapes.
- * useSpread=true (grids ≥7): prefer bbox expansion so shapes span the grid.
+ * useSpread=false: random frontier (compact).
+ * useSpread=true: prefer bbox expansion (elongated / spanning).
  */
 function growConnectedBlob(targetSize, useSpread) {
   const total = cols * rows;
@@ -472,20 +474,21 @@ function contourOk(list) {
 
 /**
  * Random connected Hofmann-like pin cycle using current grid + circle size.
- * Density (less/medium/more) narrows fill or pin bands; never exceeds
- * MAX_GEN_PINS. Grids ≤6: fill-fraction growth. Grids ≥7: bbox spread.
+ * PINS (less/medium/more) narrows fill or pin bands. Growth is always
+ * spread/elongated. Never exceeds MAX_GEN_PINS.
  */
 function generatePins() {
   layoutGrid();
   const total = cols * rows;
   if (total < 1) return;
 
-  const useSpread = cols >= 7;
-  const band = GEN_DENSITY[genDensity] || GEN_DENSITY.medium;
+  const useSpread = genCompact === "less";
+  const band = GEN_PINS[genPins] || GEN_PINS.more;
   const [fillLo, fillHi] = band.fill;
   const [pinLo, pinHi] = band.pins;
   const maxPins = Math.min(MAX_GEN_PINS, pinHi);
-  const minPins = useSpread ? Math.min(pinLo, maxPins) : 3;
+  const minPins = useSpread || cols >= 7 ? Math.min(pinLo, maxPins) : 3;
+  const usePinBand = cols >= 7;
   const deadline = performance.now() + 1800;
   const softCap = 25;
   let accepted = null;
@@ -496,7 +499,7 @@ function generatePins() {
     let acceptLo = minPins;
     let acceptHi = maxPins;
 
-    if (!useSpread) {
+    if (!usePinBand) {
       const fill = fillLo + Math.random() * Math.max(0, fillHi - fillLo);
       growTarget = Math.max(3, Math.round(total * fill));
       acceptLo = 3;
@@ -527,7 +530,7 @@ function generatePins() {
   if (!accepted) {
     let emergency = 0;
     while (performance.now() < deadline && !accepted && emergency < 12) {
-      const growTarget = !useSpread
+      const growTarget = !usePinBand
         ? Math.max(
             3,
             Math.round(
@@ -919,16 +922,16 @@ function setGridSize(size) {
   layoutGrid();
 }
 
-function syncDensityPresets(name) {
-  document.querySelectorAll(".presets [data-density]").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.density === name);
+function syncPinsPresets(name) {
+  document.querySelectorAll(".presets [data-pins]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.pins === name);
   });
 }
 
-function setGenDensity(name) {
-  if (!GEN_DENSITY[name]) return;
-  genDensity = name;
-  syncDensityPresets(name);
+function setGenPins(name) {
+  if (!GEN_PINS[name]) return;
+  genPins = name;
+  syncPinsPresets(name);
 }
 
 function setDotPercent(pct) {
@@ -965,10 +968,10 @@ function wireUi() {
   });
   syncDotPresets(Math.round(dotScale * 100));
 
-  document.querySelectorAll(".presets [data-density]").forEach((btn) => {
-    btn.addEventListener("click", () => setGenDensity(btn.dataset.density));
+  document.querySelectorAll(".presets [data-pins]").forEach((btn) => {
+    btn.addEventListener("click", () => setGenPins(btn.dataset.pins));
   });
-  syncDensityPresets(genDensity);
+  syncPinsPresets(genPins);
 
   document.getElementById("showGrid").addEventListener("change", (e) => {
     showGrid = e.target.checked;
