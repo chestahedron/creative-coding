@@ -6,7 +6,6 @@ const ARC_STEPS = 18;
 const PAPER = "#ece7dd";
 const INK = "#1c1b18";
 const GRID_LINE = "rgba(28, 27, 24, 0.14)";
-const GRID_STROKE = "rgba(28, 27, 24, 0.14)";
 
 function geom() {
   const g = window.HofmannRubberband;
@@ -44,6 +43,7 @@ let layer;
 let lastStatus = "";
 /** Cached contour for export */
 let lastPath = null;
+let lastSegments = null;
 
 function canvasSize() {
   const stage = document.getElementById("stage");
@@ -134,6 +134,7 @@ function undoLast() {
   selected =
     prev.selected >= 0 && prev.selected < pins.length ? prev.selected : -1;
   lastPath = null;
+  lastSegments = null;
 }
 
 function clearPins() {
@@ -142,6 +143,7 @@ function clearPins() {
   pins = [];
   selected = -1;
   lastPath = null;
+  lastSegments = null;
   updateStatus(null);
 }
 
@@ -209,7 +211,7 @@ function drawOrderLines() {
 }
 
 function drawPins() {
-  // Order lines first so markers and numbers sit on top
+  // Order lines first; opaque paper discs then cover them under each pin
   drawOrderLines();
 
   const gridStroke = Math.max(1, spacing * 0.014);
@@ -218,12 +220,17 @@ function drawPins() {
     const isSel = i === selected;
     const markerR = Math.min(cellR, spacing * 0.22);
 
-    // Marker under the number — selected is inverted (solid dark + white digit)
+    // Opaque knock-out so dashed order lines never show through the marker
     noStroke();
+    fill(PAPER);
+    circle(x, y, markerR * 2 + 2);
+
+    // Marker under the number — selected is inverted (solid dark + white digit)
     if (isSel) {
       fill(INK);
     } else {
-      fill(28, 27, 24, 40);
+      // Opaque stand-in for rgba(28,27,24,40) over paper
+      fill(220, 216, 208);
     }
     circle(x, y, markerR * 2);
 
@@ -256,6 +263,7 @@ function drawPins() {
 function drawShape() {
   let result = null;
   lastPath = null;
+  lastSegments = null;
   try {
     const centers = pinCenters();
     if (!centers.length) {
@@ -273,6 +281,7 @@ function drawShape() {
   const path = result && result.path;
   if (!path || path.length < 3) return;
   lastPath = path;
+  lastSegments = result.segments || null;
 
   if (viewingPreview()) {
     // Filled form (Preview mode, or Shift held in Edit)
@@ -436,41 +445,35 @@ function buildSVG() {
   const w = width;
   const h = height;
   const parts = [];
+  // Transparent background; never include the lattice grid
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
   );
-  parts.push(`<rect width="100%" height="100%" fill="${PAPER}"/>`);
 
-  if (showGrid) {
-    const sw = Math.max(1, spacing * 0.014);
-    parts.push(`<g fill="none" stroke="${GRID_STROKE}" stroke-width="${fmt(sw)}">`);
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const { x, y } = cellCenter(c, r);
-        parts.push(
-          `<circle cx="${fmt(x)}" cy="${fmt(y)}" r="${fmt(cellR)}"/>`
-        );
-      }
-    }
-    parts.push(`</g>`);
-  }
-
-  // Fresh path so export matches current pins even if draw hasn't run
+  // Fresh contour so export matches current pins even if draw hasn't run
   let path = lastPath;
+  let segments = lastSegments;
   try {
     const centers = pinCenters();
     if (centers.length) {
       const result = geom().buildRubberBand(centers, cellR, ARC_STEPS);
-      if (result.path && result.path.length >= 3) path = result.path;
+      if (result.path && result.path.length >= 3) {
+        path = result.path;
+        segments = result.segments || null;
+      }
     }
   } catch (_) {
-    /* use lastPath */
+    /* use cache */
   }
 
-  if (path && path.length >= 3) {
-    const d = pathToSvgD(path);
-    // Always export the filled form (never outline)
-    parts.push(`<path d="${d}" fill="${INK}" stroke="none"/>`);
+  if (segments && segments.length) {
+    const d = geom().segmentsToSvgD(segments);
+    if (d) parts.push(`<path d="${d}" fill="${INK}" stroke="none"/>`);
+  } else if (path && path.length >= 3) {
+    // Fallback polyline (should be rare)
+    parts.push(
+      `<path d="${pathToSvgD(path)}" fill="${INK}" stroke="none"/>`
+    );
   }
 
   parts.push(`</svg>`);

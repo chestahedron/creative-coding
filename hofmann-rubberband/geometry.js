@@ -182,8 +182,92 @@
     return { x: dy / len, y: -dx / len };
   }
 
+  function arcSeg(cx, cy, r, a0, a1, ccw) {
+    return { type: "arc", cx, cy, r, a0, a1, ccw: !!ccw };
+  }
+
+  function lineSeg(x1, y1, x2, y2) {
+    return { type: "line", x1, y1, x2, y2 };
+  }
+
+  function arcDelta(a0, a1, ccw) {
+    let delta = a1 - a0;
+    if (ccw) {
+      while (delta < 0) delta += TWO_PI;
+      while (delta >= TWO_PI) delta -= TWO_PI;
+    } else {
+      while (delta > 0) delta -= TWO_PI;
+      while (delta <= -TWO_PI) delta += TWO_PI;
+    }
+    return delta;
+  }
+
+  function pointOnCircle(cx, cy, r, a) {
+    return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+  }
+
+  /**
+   * SVG path `d` from structured arc/line segments.
+   * Arcs use elliptical-arc `A` (exact circles); tangents use `L`.
+   */
+  function segmentsToSvgD(segments) {
+    if (!segments || !segments.length) return "";
+
+    function fmt(n) {
+      return (Math.round(n * 1000) / 1000).toString();
+    }
+
+    const first = segments[0];
+    let start;
+    if (first.type === "arc") {
+      start = pointOnCircle(first.cx, first.cy, first.r, first.a0);
+    } else {
+      start = { x: first.x1, y: first.y1 };
+    }
+
+    let d = `M ${fmt(start.x)} ${fmt(start.y)}`;
+
+    for (const seg of segments) {
+      if (seg.type === "line") {
+        d += ` L ${fmt(seg.x2)} ${fmt(seg.y2)}`;
+        continue;
+      }
+      if (seg.type !== "arc") continue;
+
+      // Split into pieces < 180° so large-arc stays unambiguous; full circle → 4 quarters
+      let remaining = arcDelta(seg.a0, seg.a1, seg.ccw);
+      if (Math.abs(remaining) < 1e-9) continue;
+
+      // SVG sweep: 1 = positive angle = clockwise in y-down. Increasing atan2 is CW on screen.
+      const sweep = seg.ccw ? 1 : 0;
+      let a = seg.a0;
+      const maxPiece = Math.PI - 1e-6;
+
+      while (Math.abs(remaining) > 1e-9) {
+        const step =
+          Math.abs(remaining) > maxPiece
+            ? Math.sign(remaining) * maxPiece
+            : remaining;
+        const aNext = a + step;
+        const end = pointOnCircle(seg.cx, seg.cy, seg.r, aNext);
+        const large = Math.abs(step) > Math.PI ? 1 : 0;
+        d += ` A ${fmt(seg.r)} ${fmt(seg.r)} 0 ${large} ${sweep} ${fmt(end.x)} ${fmt(end.y)}`;
+        a = aNext;
+        remaining -= step;
+      }
+    }
+
+    d += " Z";
+    return d;
+  }
+
   /** Capsule from two equal circles (both exterior flanks). */
   function pillPath(A, B, radius, arcSteps) {
+    const built = pillContour(A, B, radius, arcSteps);
+    return built ? built.path : null;
+  }
+
+  function pillContour(A, B, radius, arcSteps) {
     const steps = arcSteps || 18;
     const pair = equalCircleTangents(A, B, radius).filter((t) => !t.internal);
     if (pair.length < 2) return null;
@@ -202,13 +286,25 @@
     const outer = scored[0].t;
     const inner = scored[1].t;
 
+    const aInnerA = Math.atan2(inner.pA.y - A.y, inner.pA.x - A.x);
+    const aOuterA = Math.atan2(outer.pA.y - A.y, outer.pA.x - A.x);
+    const aOuterB = Math.atan2(outer.pB.y - B.y, outer.pB.x - B.x);
+    const aInnerB = Math.atan2(inner.pB.y - B.y, inner.pB.x - B.x);
+
+    const segments = [
+      arcSeg(A.x, A.y, radius, aInnerA, aOuterA, true),
+      lineSeg(outer.pA.x, outer.pA.y, outer.pB.x, outer.pB.y),
+      arcSeg(B.x, B.y, radius, aOuterB, aInnerB, true),
+      lineSeg(inner.pB.x, inner.pB.y, inner.pA.x, inner.pA.y),
+    ];
+
     const path = [];
     let arc = sampleArcDirected(
       A.x,
       A.y,
       radius,
-      Math.atan2(inner.pA.y - A.y, inner.pA.x - A.x),
-      Math.atan2(outer.pA.y - A.y, outer.pA.x - A.x),
+      aInnerA,
+      aOuterA,
       true,
       steps * 2
     );
@@ -220,15 +316,15 @@
       B.x,
       B.y,
       radius,
-      Math.atan2(outer.pB.y - B.y, outer.pB.x - B.x),
-      Math.atan2(inner.pB.y - B.y, inner.pB.x - B.x),
+      aOuterB,
+      aInnerB,
       true,
       steps * 2
     );
     for (const p of arc) appendPoint(path, p);
     appendPoint(path, inner.pB);
     appendPoint(path, inner.pA);
-    return path;
+    return { path, segments };
   }
 
   function segmentsIntersect(a, b, c, d) {
@@ -422,13 +518,14 @@
    * @param {{x:number,y:number}[]} pins visit order (closed cycle)
    * @param {number} radius
    * @param {number} [arcSteps]
-   * @returns {{ path, orients, ok, reason, selfIntersecting }}
+   * @returns {{ path, segments, orients, ok, reason, selfIntersecting }}
    */
   function buildRubberBand(pins, radius, arcSteps) {
     const steps = arcSteps || 18;
     if (!pins || !pins.length) {
       return {
         path: [],
+        segments: [],
         orients: [],
         ok: false,
         reason: "empty",
@@ -446,8 +543,16 @@
           y: p.y + Math.sin(a) * radius,
         });
       }
+      // Four quarter arcs (full circle) — SVG A cannot express a full 360° in one command
+      const segments = [
+        arcSeg(p.x, p.y, radius, 0, HALF_PI, true),
+        arcSeg(p.x, p.y, radius, HALF_PI, Math.PI, true),
+        arcSeg(p.x, p.y, radius, Math.PI, Math.PI + HALF_PI, true),
+        arcSeg(p.x, p.y, radius, Math.PI + HALF_PI, TWO_PI, true),
+      ];
       return {
         path,
+        segments,
         orients: ["ccw"],
         ok: true,
         reason: null,
@@ -456,19 +561,21 @@
     }
 
     if (pins.length === 2) {
-      const path = pillPath(pins[0], pins[1], radius, steps);
-      if (!path) {
+      const built = pillContour(pins[0], pins[1], radius, steps);
+      if (!built) {
         return {
           path: [],
+          segments: [],
           orients: [],
           ok: false,
           reason: "pill",
           selfIntersecting: false,
         };
       }
-      const bad = polylineSelfIntersects(path);
+      const bad = polylineSelfIntersects(built.path);
       return {
-        path,
+        path: built.path,
+        segments: built.segments,
         orients: ["ccw", "ccw"],
         ok: !bad,
         reason: bad ? "self-intersect" : null,
@@ -480,6 +587,7 @@
     if (!orients) {
       return {
         path: [],
+        segments: [],
         orients: [],
         ok: false,
         reason: "no-tangent-assignment",
@@ -496,6 +604,7 @@
       if (!t) {
         return {
           path: [],
+          segments: [],
           orients,
           ok: false,
           reason: `link ${i}`,
@@ -506,6 +615,7 @@
     }
 
     const path = [];
+    const segments = [];
     for (let i = 0; i < n; i++) {
       const node = pins[i];
       const prev = links[(i - 1 + n) % n];
@@ -514,25 +624,31 @@
       const leave = next.pA;
       const a0 = Math.atan2(arrive.y - node.y, arrive.x - node.x);
       const a1 = Math.atan2(leave.y - node.y, leave.x - node.x);
+      const mathCcw = orientMathCcw(orients[i]);
+      segments.push(arcSeg(node.x, node.y, radius, a0, a1, mathCcw));
       const arc = sampleArcDirected(
         node.x,
         node.y,
         radius,
         a0,
         a1,
-        orientMathCcw(orients[i]),
+        mathCcw,
         steps
       );
       for (const p of arc) appendPoint(path, p);
       if (!next.degenerate) {
         appendPoint(path, leave);
         appendPoint(path, next.pB);
+        segments.push(
+          lineSeg(leave.x, leave.y, next.pB.x, next.pB.y)
+        );
       }
     }
 
     if (path.length < 3) {
       return {
         path: [],
+        segments: [],
         orients,
         ok: false,
         reason: "short-path",
@@ -543,6 +659,7 @@
     const bad = polylineSelfIntersects(path);
     return {
       path,
+      segments,
       orients,
       ok: !bad,
       reason: bad ? "self-intersect" : null,
@@ -559,7 +676,9 @@
     polylineSelfIntersects,
     pointInPoly,
     pillPath,
+    pillContour,
     sampleArcDirected,
+    segmentsToSvgD,
     resolveOrientations,
   };
 });

@@ -191,4 +191,38 @@ test("equalCircleTangents returns exterior and interior", () => {
   assert(inn.length === 2, "2 interior");
 });
 
+// --- Structured segments + SVG arcs ---
+test("rectangle returns arc and line segments", () => {
+  const pins = [pt(1, 1), pt(5, 1), pt(5, 4), pt(1, 4)];
+  const result = G.buildRubberBand(pins, radius, 18);
+  assert(result.ok, "ok");
+  assert(result.segments && result.segments.length >= 8, "has segments");
+  const arcs = result.segments.filter((s) => s.type === "arc");
+  const lines = result.segments.filter((s) => s.type === "line");
+  assert(arcs.length === 4, `4 arcs got ${arcs.length}`);
+  assert(lines.length === 4, `4 lines got ${lines.length}`);
+});
+
+test("pill SVG d uses A arcs not dense L chains", () => {
+  const result = G.buildRubberBand([pt(1, 2), pt(5, 2)], radius, 18);
+  assert(result.ok, "ok");
+  assert(result.segments && result.segments.length === 4, "pill segments");
+  const d = G.segmentsToSvgD(result.segments);
+  assert(d.includes(" A "), "has arc commands");
+  assert(d.includes(" L "), "has tangent lines");
+  // Polyline export of the sampled path would have dozens of L commands
+  const Lcount = (d.match(/ L /g) || []).length;
+  const Acount = (d.match(/ A /g) || []).length;
+  assert(Lcount === 2, `exactly 2 L got ${Lcount}`);
+  assert(Acount >= 2 && Acount <= 8, `few A commands got ${Acount}`);
+});
+
+test("1-pin SVG is four quarter arcs", () => {
+  const result = G.buildRubberBand([pt(3, 3)], radius, 18);
+  const d = G.segmentsToSvgD(result.segments);
+  const Acount = (d.match(/ A /g) || []).length;
+  assert(Acount === 4, `4 quarter arcs got ${Acount}`);
+  assert(!d.includes(" L "), "no lines");
+});
+
 console.log(`\n${passed} tests passed`);
