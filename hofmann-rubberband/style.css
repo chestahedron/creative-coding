@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Kanso Code";
+  src: url("../assets/fonts/KansoCode154-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -9,13 +17,27 @@
   --ink: #1c1b18;
   --line: #c4bcab;
   --muted: #6f6a5e;
+  --font: "Kanso Code", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --icon-edit: url("../assets/icons/__ALL/edit-line.svg");
+  --icon-eye: url("../assets/icons/__ALL/eye-line.svg");
+  --icon-pin: url("../assets/icons/__ALL/map-pin-line.svg");
+  --icon-eraser: url("../assets/icons/__ALL/eraser-line.svg");
+  --icon-clear: url("../assets/icons/__ALL/delete-bin-line.svg");
+  --icon-download: url("../assets/icons/__ALL/download-line.svg");
+  --icon-up: url("../assets/icons/__ALL/arrow-up-line.svg");
+  --icon-down: url("../assets/icons/__ALL/arrow-down-line.svg");
+  --icon-left: url("../assets/icons/__ALL/arrow-left-line.svg");
+  --icon-right: url("../assets/icons/__ALL/arrow-right-line.svg");
+  --icon-backspace: url("../assets/icons/__ALL/delete-back-line.svg");
+  --icon-shift: url("../assets/icons/__ALL/arrow-up-s-line.svg");
 }
 
 body {
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: var(--font);
   background: var(--paper);
   color: var(--ink);
   min-height: 100vh;
+  font-feature-settings: "tnum" 1;
 }
 
 #app {
@@ -24,7 +46,7 @@ body {
 }
 
 #panel {
-  width: 240px;
+  width: 260px;
   flex-shrink: 0;
   padding: 28px 22px;
   border-right: 1px solid var(--line);
@@ -34,17 +56,28 @@ body {
 }
 
 #panel h1 {
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 400;
   letter-spacing: -0.02em;
-  line-height: 1.05;
+  line-height: 1.1;
   text-transform: uppercase;
 }
 
 .hint {
-  font-size: 12px;
-  line-height: 1.5;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.45;
   color: var(--muted);
+}
+
+.hint li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
 
 .status {
@@ -137,6 +170,7 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
   font: inherit;
   font-size: 12px;
   text-transform: uppercase;
@@ -146,6 +180,82 @@ button {
   border: 1px solid var(--ink);
   color: var(--ink);
   cursor: pointer;
+}
+
+.btn-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  background: currentColor;
+  -webkit-mask: no-repeat center / contain;
+  mask: no-repeat center / contain;
+}
+
+.icon[data-icon="edit"] {
+  -webkit-mask-image: var(--icon-edit);
+  mask-image: var(--icon-edit);
+}
+
+.icon[data-icon="eye"] {
+  -webkit-mask-image: var(--icon-eye);
+  mask-image: var(--icon-eye);
+}
+
+.icon[data-icon="pin"] {
+  -webkit-mask-image: var(--icon-pin);
+  mask-image: var(--icon-pin);
+}
+
+.icon[data-icon="eraser"] {
+  -webkit-mask-image: var(--icon-eraser);
+  mask-image: var(--icon-eraser);
+}
+
+.icon[data-icon="clear"] {
+  -webkit-mask-image: var(--icon-clear);
+  mask-image: var(--icon-clear);
+}
+
+.icon[data-icon="download"] {
+  -webkit-mask-image: var(--icon-download);
+  mask-image: var(--icon-download);
+}
+
+.icon[data-icon="up"] {
+  -webkit-mask-image: var(--icon-up);
+  mask-image: var(--icon-up);
+}
+
+.icon[data-icon="down"] {
+  -webkit-mask-image: var(--icon-down);
+  mask-image: var(--icon-down);
+}
+
+.icon[data-icon="left"] {
+  -webkit-mask-image: var(--icon-left);
+  mask-image: var(--icon-left);
+}
+
+.icon[data-icon="right"] {
+  -webkit-mask-image: var(--icon-right);
+  mask-image: var(--icon-right);
+}
+
+.icon[data-icon="backspace"] {
+  -webkit-mask-image: var(--icon-backspace);
+  mask-image: var(--icon-backspace);
+}
+
+.icon[data-icon="shift"] {
+  -webkit-mask-image: var(--icon-shift);
+  mask-image: var(--icon-shift);
 }
 
 button:hover {
@@ -166,9 +276,38 @@ button.primary:hover {
 }
 
 kbd {
-  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7em;
+  height: 1.7em;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-family: var(--font);
   font-size: 10px;
-  opacity: 0.5;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.72;
+  box-sizing: border-box;
+}
+
+kbd .icon {
+  width: 9px;
+  height: 9px;
+}
+
+.hint kbd {
+  color: var(--ink);
+  opacity: 0.85;
+}
+
+button.tool.active kbd,
+button.mode.active kbd,
+button.primary kbd {
+  opacity: 0.65;
 }
 
 #stage {

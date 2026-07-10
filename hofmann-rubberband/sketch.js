@@ -16,9 +16,10 @@ function geom() {
   return g;
 }
 
-let gridN = 8;
-let cols = 8;
-let rows = 8;
+let gridN = 5;
+let uiFont = null;
+let cols = 5;
+let rows = 5;
 let dotScale = 1.0;
 let showGrid = true;
 let showOrder = true;
@@ -64,6 +65,12 @@ function setup() {
   pixelDensity(Math.min(2, window.devicePixelRatio || 1));
   layer = createGraphics(width, height);
   layer.pixelDensity(pixelDensity());
+
+  // Load async — never block setup (preload 404s leave a blank canvas)
+  loadFont("../assets/fonts/KansoCode154-Regular.otf", (f) => {
+    uiFont = f;
+    textFont(uiFont);
+  });
 
   makeGrid(gridN);
   layoutGrid();
@@ -359,16 +366,15 @@ function keyPressed() {
     deleteSelected();
     return false;
   }
-  // Shift+Z undoes last place / move / delete / clear
-  if ((key === "z" || key === "Z") && keyIsDown(SHIFT)) {
+  // Z undoes last place / move / delete / clear
+  if (key === "z" || key === "Z") {
     undoLast();
     return false;
   }
   if (key === "1") setTool("pin");
-  if (key === "e" || key === "E") setTool("erase");
+  if (key === "2") setTool("erase");
   if (key === "c" || key === "C") clearPins();
-  if (key === "s" || key === "S") savePNG();
-  if (key === "v" || key === "V") saveSVG();
+  if (key === "s" || key === "S") saveSVG();
 }
 
 function setTool(name) {
@@ -408,8 +414,7 @@ function buildSVG() {
   );
   parts.push(`<rect width="100%" height="100%" fill="${PAPER}"/>`);
 
-  const exportPreview = mode === "preview";
-  if (showGrid && !exportPreview) {
+  if (showGrid) {
     const sw = Math.max(1, spacing * 0.014);
     parts.push(`<g fill="none" stroke="${GRID_STROKE}" stroke-width="${fmt(sw)}">`);
     for (let r = 0; r < rows; r++) {
@@ -437,21 +442,12 @@ function buildSVG() {
 
   if (path && path.length >= 3) {
     const d = pathToSvgD(path);
-    if (mode === "edit") {
-      parts.push(
-        `<path d="${d}" fill="none" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/>`
-      );
-    } else {
-      parts.push(`<path d="${d}" fill="${INK}" stroke="none"/>`);
-    }
+    // Always export the filled form (never outline)
+    parts.push(`<path d="${d}" fill="${INK}" stroke="none"/>`);
   }
 
   parts.push(`</svg>`);
   return parts.join("\n");
-}
-
-function savePNG() {
-  saveCanvas("hofmann-rubberband", "png");
 }
 
 function saveSVG() {
@@ -500,7 +496,6 @@ function wireUi() {
   });
 
   document.getElementById("clear").addEventListener("click", clearPins);
-  document.getElementById("save").addEventListener("click", savePNG);
   document.getElementById("saveSvg").addEventListener("click", saveSVG);
 }
 

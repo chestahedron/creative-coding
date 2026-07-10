@@ -11,18 +11,38 @@
     <div id="app">
       <aside id="panel">
         <h1>Hofmann<br />Rubber Band</h1>
-        <p class="hint">
-          Click pins in wrap order. A placed pin stays selected — arrow keys
-          move it, Backspace deletes it. New pins insert after the selection
-          in visit order. Shift+Z undoes the last change.
-        </p>
+        <ul class="hint">
+          <li>
+            Move pin:
+            <kbd aria-label="Up"><span class="icon" data-icon="up"></span></kbd>
+            <kbd aria-label="Down"><span class="icon" data-icon="down"></span></kbd>
+            <kbd aria-label="Left"><span class="icon" data-icon="left"></span></kbd>
+            <kbd aria-label="Right"><span class="icon" data-icon="right"></span></kbd>
+          </li>
+          <li>
+            Delete pin:
+            <kbd aria-label="Backspace"><span class="icon" data-icon="backspace"></span></kbd>
+          </li>
+          <li>
+            Undo:
+            <kbd>Z</kbd>
+          </li>
+        </ul>
+
+        <hr class="sep" />
 
         <div class="tools" role="group" aria-label="Mode">
           <button class="mode active" data-mode="edit" type="button">
-            Edit
+            <span class="btn-main">
+              <span class="icon" data-icon="edit" aria-hidden="true"></span>
+              Edit
+            </span>
           </button>
           <button class="mode" data-mode="preview" type="button">
-            Preview
+            <span class="btn-main">
+              <span class="icon" data-icon="eye" aria-hidden="true"></span>
+              Preview
+            </span>
           </button>
         </div>
 
@@ -30,16 +50,24 @@
 
         <div class="tools" role="group" aria-label="Brush">
           <button class="tool active" data-tool="pin" type="button">
-            Pin <kbd>1</kbd>
+            <span class="btn-main">
+              <span class="icon" data-icon="pin" aria-hidden="true"></span>
+              Pin
+            </span>
+            <kbd>1</kbd>
           </button>
           <button class="tool" data-tool="erase" type="button">
-            Erase <kbd>E</kbd>
+            <span class="btn-main">
+              <span class="icon" data-icon="eraser" aria-hidden="true"></span>
+              Erase
+            </span>
+            <kbd>2</kbd>
           </button>
         </div>
 
         <label>
-          <span>Grid size <em id="gridVal">8</em></span>
-          <input id="grid" type="range" min="3" max="16" step="1" value="8" />
+          <span>Grid size <em id="gridVal">5</em></span>
+          <input id="grid" type="range" min="3" max="16" step="1" value="5" />
         </label>
 
         <label>
@@ -60,10 +88,19 @@
         <p id="status" class="status">Pins 0</p>
 
         <div class="buttons">
-          <button id="clear" type="button">Clear <kbd>C</kbd></button>
-          <button id="save" type="button">Save PNG <kbd>S</kbd></button>
+          <button id="clear" type="button">
+            <span class="btn-main">
+              <span class="icon" data-icon="clear" aria-hidden="true"></span>
+              Clear
+            </span>
+            <kbd>C</kbd>
+          </button>
           <button id="saveSvg" class="primary" type="button">
-            Save SVG <kbd>V</kbd>
+            <span class="btn-main">
+              <span class="icon" data-icon="download" aria-hidden="true"></span>
+              Save SVG
+            </span>
+            <kbd>S</kbd>
           </button>
         </div>
       </aside>
