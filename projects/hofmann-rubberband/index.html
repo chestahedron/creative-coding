@@ -53,33 +53,20 @@
           </button>
         </div>
 
-        <hr class="sep" />
-
-        <div class="tools" role="group" aria-label="Brush">
-          <button class="tool active" data-tool="pin" type="button">
-            <span class="btn-main">
-              <span class="icon" data-icon="pin" aria-hidden="true"></span>
-              Pin
-            </span>
-            <kbd>1</kbd>
-          </button>
-          <button class="tool" data-tool="erase" type="button">
-            <span class="btn-main">
-              <span class="icon" data-icon="eraser" aria-hidden="true"></span>
-              Erase
-            </span>
-            <kbd>2</kbd>
-          </button>
-        </div>
-
         <label>
-          <span>Grid size <em id="gridVal">5</em></span>
-          <input id="grid" type="range" min="3" max="16" step="1" value="5" />
+          <span>Grid size <em id="gridVal">4</em></span>
+          <input id="grid" type="range" min="3" max="16" step="1" value="4" />
         </label>
 
         <label>
-          <span>Circle size <em id="dotVal">100%</em></span>
-          <input id="dot" type="range" min="55" max="140" step="1" value="100" />
+          <span>Circle size <em id="dotVal">75%</em></span>
+          <input id="dot" type="range" min="50" max="95" step="1" value="75" />
+          <div class="presets" role="group" aria-label="Circle size presets">
+            <button type="button" data-dot="50">50%</button>
+            <button type="button" data-dot="66">66%</button>
+            <button type="button" data-dot="75" class="active">75%</button>
+            <button type="button" data-dot="95">95%</button>
+          </div>
         </label>
 
         <div class="checks">
@@ -97,6 +84,13 @@
         <p id="status" class="status">Pins 0</p>
 
         <div class="buttons">
+          <button id="generate" type="button">
+            <span class="btn-main">
+              <span class="icon" data-icon="generate" aria-hidden="true"></span>
+              Generate
+            </span>
+            <kbd>G</kbd>
+          </button>
           <button id="clear" type="button">
             <span class="btn-main">
               <span class="icon" data-icon="clear" aria-hidden="true"></span>

@@ -25,6 +25,7 @@
   --icon-pin: url("../../assets/icons/__ALL/map-pin-line.svg");
   --icon-eraser: url("../../assets/icons/__ALL/eraser-line.svg");
   --icon-clear: url("../../assets/icons/__ALL/delete-bin-line.svg");
+  --icon-generate: url("../../assets/icons/__ALL/refresh-line.svg");
   --icon-download: url("../../assets/icons/__ALL/download-line.svg");
   --icon-up: url("../../assets/icons/__ALL/arrow-up-line.svg");
   --icon-down: url("../../assets/icons/__ALL/arrow-down-line.svg");
@@ -139,6 +140,35 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
+.presets {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.25rem;
+  margin-top: 0.125rem;
+}
+
+.presets button {
+  flex: 1;
+  justify-content: center;
+  padding: 0.25rem 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.presets button:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+.presets button.active {
+  color: var(--ink);
+}
+
 label.check {
   flex-direction: row;
   align-items: center;
@@ -232,6 +262,11 @@ button {
 .icon[data-icon="clear"] {
   -webkit-mask-image: var(--icon-clear);
   mask-image: var(--icon-clear);
+}
+
+.icon[data-icon="generate"] {
+  -webkit-mask-image: var(--icon-generate);
+  mask-image: var(--icon-generate);
 }
 
 .icon[data-icon="download"] {

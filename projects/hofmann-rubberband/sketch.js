@@ -3,6 +3,9 @@
  * Geometry lives in geometry.js (HofmannRubberband).
  */
 const ARC_STEPS = 18;
+/** Hard ceiling for generated pin cycles (~grid-10 working max) */
+const MAX_GEN_PINS = 24;
+const MIN_GEN_PINS = 6;
 /** Shared HSB palette (0–360, 0–100, 0–100); S ≈ 60% of prior.
  *  Named PALETTE so it does not shadow p5's HSB colorMode constant. */
 const PALETTE = {
@@ -21,11 +24,11 @@ function geom() {
   return g;
 }
 
-let gridN = 5;
+let gridN = 4;
 let uiFont = null;
-let cols = 5;
-let rows = 5;
-let dotScale = 1.0;
+let cols = 4;
+let rows = 4;
+let dotScale = 0.75;
 let showGrid = true;
 let showOrder = true;
 /** Visit-order pin cycle: [{c,r}, ...] */
@@ -35,13 +38,13 @@ let selected = -1;
 /** Undo stack for place / move / delete / clear */
 let undoStack = [];
 const UNDO_MAX = 80;
+const DOT_PRESETS = [50, 66, 75, 95];
 
 let spacing = 40;
 let cellR = 20;
 let originX = 0;
 let originY = 0;
 
-let tool = "pin";
 /** "edit" = outline + pins; "preview" = filled shape only */
 let mode = "edit";
 let layer;
@@ -152,6 +155,450 @@ function clearPins() {
   lastPath = null;
   lastSegments = null;
   updateStatus(null);
+}
+
+function keyOf(c, r) {
+  return `${c},${r}`;
+}
+
+function neighbors4(c, r) {
+  const out = [];
+  const dirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  for (const [dc, dr] of dirs) {
+    const nc = c + dc;
+    const nr = r + dr;
+    if (nc >= 0 && nr >= 0 && nc < cols && nr < rows) out.push({ c: nc, r: nr });
+  }
+  return out;
+}
+
+function pickRandom(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function chebyshev(a, b) {
+  return Math.max(Math.abs(a.c - b.c), Math.abs(a.r - b.r));
+}
+
+function genMinSeparation() {
+  // Large circles need sparser pins so tangents still exist
+  if (dotScale >= 1.0) return 2;
+  return 1;
+}
+
+function genMaxPins() {
+  if (dotScale >= 1.3) return Math.min(16, MAX_GEN_PINS);
+  return MAX_GEN_PINS;
+}
+
+function bboxAreaOf(cells) {
+  let minC = Infinity;
+  let maxC = -Infinity;
+  let minR = Infinity;
+  let maxR = -Infinity;
+  for (const p of cells) {
+    if (p.c < minC) minC = p.c;
+    if (p.c > maxC) maxC = p.c;
+    if (p.r < minR) minR = p.r;
+    if (p.r > maxR) maxR = p.r;
+  }
+  return (maxC - minC + 1) * (maxR - minR + 1);
+}
+
+function farEnough(cell, chosen, minSep) {
+  for (const p of chosen.values()) {
+    if (chebyshev(cell, p) < minSep) return false;
+  }
+  return true;
+}
+
+/** Frontier cells at Chebyshev distance exactly minSep from the set. */
+function sepFrontier(chosen, minSep) {
+  const frontier = [];
+  const seen = new Set();
+  for (const p of chosen.values()) {
+    for (let dc = -minSep; dc <= minSep; dc++) {
+      for (let dr = -minSep; dr <= minSep; dr++) {
+        if (Math.max(Math.abs(dc), Math.abs(dr)) !== minSep) continue;
+        const nc = p.c + dc;
+        const nr = p.r + dr;
+        if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+        const k = keyOf(nc, nr);
+        if (chosen.has(k) || seen.has(k)) continue;
+        const cell = { c: nc, r: nr };
+        if (!farEnough(cell, chosen, minSep)) continue;
+        seen.add(k);
+        frontier.push(cell);
+      }
+    }
+  }
+  return frontier;
+}
+
+function pickSpreadSeed() {
+  // On larger grids, often start near an edge so the shape can span
+  if (cols >= 8 && Math.random() < 0.65) {
+    const edge = Math.floor(Math.random() * 4);
+    if (edge === 0) return { c: Math.floor(Math.random() * cols), r: 0 };
+    if (edge === 1) return { c: Math.floor(Math.random() * cols), r: rows - 1 };
+    if (edge === 2) return { c: 0, r: Math.floor(Math.random() * rows) };
+    return { c: cols - 1, r: Math.floor(Math.random() * rows) };
+  }
+  return {
+    c: Math.floor(Math.random() * cols),
+    r: Math.floor(Math.random() * rows),
+  };
+}
+
+/**
+ * Grow a connected pin set that prefers spanning the grid (bbox growth).
+ * minSep=1 → classic 4-connected; minSep=2 → no adjacent pins (high radius).
+ */
+function growConnectedBlob(targetSize, minSep) {
+  const sep = minSep || 1;
+  const total = cols * rows;
+  const n = Math.max(1, Math.min(targetSize, total));
+  const seed = pickSpreadSeed();
+  const chosen = new Map();
+  chosen.set(keyOf(seed.c, seed.r), { c: seed.c, r: seed.r });
+
+  while (chosen.size < n) {
+    let frontier;
+    if (sep <= 1) {
+      frontier = [];
+      for (const cell of chosen.values()) {
+        for (const nb of neighbors4(cell.c, cell.r)) {
+          if (!chosen.has(keyOf(nb.c, nb.r))) frontier.push(nb);
+        }
+      }
+    } else {
+      frontier = sepFrontier(chosen, sep);
+    }
+    if (!frontier.length) break;
+
+    const baseArea = bboxAreaOf(chosen.values());
+    const scored = frontier.map((cell) => {
+      const trial = Array.from(chosen.values());
+      trial.push(cell);
+      return { cell, gain: bboxAreaOf(trial) - baseArea };
+    });
+    scored.sort((a, b) => b.gain - a.gain);
+    // Pick among the best few for variety while still spreading
+    const top = scored.slice(0, Math.min(4, scored.length));
+    const next = pickRandom(top).cell;
+    chosen.set(keyOf(next.c, next.r), next);
+  }
+
+  return Array.from(chosen.values());
+}
+
+/** Cells in the blob that touch empty space (Hofmann outline pins). */
+function blobBoundary(cells) {
+  const set = new Map();
+  for (const p of cells) set.set(keyOf(p.c, p.r), p);
+  const edge = [];
+  for (const p of cells) {
+    const nbs = neighbors4(p.c, p.r);
+    if (nbs.length < 4) {
+      edge.push({ c: p.c, r: p.r });
+      continue;
+    }
+    let onEdge = false;
+    for (const nb of nbs) {
+      if (!set.has(keyOf(nb.c, nb.r))) {
+        onEdge = true;
+        break;
+      }
+    }
+    if (onEdge) edge.push({ c: p.c, r: p.r });
+  }
+  return edge.length ? edge : cells.map((p) => ({ c: p.c, r: p.r }));
+}
+
+/** Angular order around centroid — works for sparse (sep≥2) pin sets. */
+function orderByAngle(cells) {
+  if (cells.length <= 2) return cells.map((p) => ({ c: p.c, r: p.r }));
+  let cx = 0;
+  let cy = 0;
+  for (const p of cells) {
+    cx += p.c;
+    cy += p.r;
+  }
+  cx /= cells.length;
+  cy /= cells.length;
+  return cells
+    .map((p) => ({ c: p.c, r: p.r }))
+    .sort(
+      (a, b) =>
+        Math.atan2(a.r - cy, a.c - cx) - Math.atan2(b.r - cy, b.c - cx)
+    );
+}
+
+/**
+ * Walk the blob boundary in a coherent loop (prefer 4-neighbors on the
+ * boundary). Falls back to nearest unused if the ring breaks.
+ */
+function orderVisitCycle(cells) {
+  if (!cells.length) return [];
+  if (cells.length === 1) return [{ c: cells[0].c, r: cells[0].r }];
+
+  let start = cells[0];
+  for (const p of cells) {
+    if (p.c < start.c || (p.c === start.c && p.r < start.r)) start = p;
+  }
+
+  const remaining = new Map();
+  for (const p of cells) remaining.set(keyOf(p.c, p.r), { c: p.c, r: p.r });
+
+  const order = [];
+  let cur = { c: start.c, r: start.r };
+  remaining.delete(keyOf(cur.c, cur.r));
+  order.push(cur);
+
+  while (remaining.size) {
+    const nbrs = neighbors4(cur.c, cur.r).filter((nb) =>
+      remaining.has(keyOf(nb.c, nb.r))
+    );
+    let next;
+    if (nbrs.length) {
+      next = pickRandom(nbrs);
+    } else {
+      let best = null;
+      let bestD = Infinity;
+      for (const p of remaining.values()) {
+        const d = Math.abs(p.c - cur.c) + Math.abs(p.r - cur.r);
+        if (d < bestD) {
+          bestD = d;
+          best = p;
+        }
+      }
+      next = best;
+    }
+    remaining.delete(keyOf(next.c, next.r));
+    order.push(next);
+    cur = next;
+  }
+
+  return order;
+}
+
+function orderGenCycle(cells, minSep) {
+  if (minSep >= 2) return orderByAngle(cells);
+  return orderVisitCycle(blobBoundary(cells));
+}
+
+/** Reject cycles with long collinear runs (orientation DFS would explode). */
+function maxCollinearRun(list) {
+  const n = list.length;
+  if (n < 3) return n;
+  let maxRun = 2;
+  for (let i = 0; i < n; i++) {
+    const a = list[i];
+    const b = list[(i + 1) % n];
+    const dc = b.c - a.c;
+    const dr = b.r - a.r;
+    if (dc === 0 && dr === 0) continue;
+    let run = 2;
+    for (let k = 2; k < n; k++) {
+      const p = list[(i + k - 1) % n];
+      const q = list[(i + k) % n];
+      if (q.c - p.c === dc && q.r - p.r === dr) run++;
+      else break;
+    }
+    if (run > maxRun) maxRun = run;
+  }
+  return maxRun;
+}
+
+function centersForPins(list) {
+  return list.map((p) => cellCenter(p.c, p.r));
+}
+
+function clamp01(t) {
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+/** Minimum distance between two finite segments AB and CD. */
+function segSegDistance(a, b, c, d) {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const cdx = d.x - c.x;
+  const cdy = d.y - c.y;
+  const cax = a.x - c.x;
+  const cay = a.y - c.y;
+  const ab2 = abx * abx + aby * aby;
+  const cd2 = cdx * cdx + cdy * cdy;
+  const abcd = abx * cdx + aby * cdy;
+  const abca = abx * cax + aby * cay;
+  const cdca = cdx * cax + cdy * cay;
+  let s;
+  let t;
+  const denom = ab2 * cd2 - abcd * abcd;
+  if (denom < 1e-12) {
+    s = 0;
+    t = cd2 > 1e-12 ? clamp01(cdca / cd2) : 0;
+  } else {
+    s = clamp01((abcd * cdca - cd2 * abca) / denom);
+    t = clamp01((ab2 * cdca - abcd * abca) / denom);
+  }
+  // Recompute s if t was clamped (and vice versa) for better endpoint accuracy
+  if (denom >= 1e-12) {
+    if (t === 0 || t === 1) {
+      s = ab2 > 1e-12 ? clamp01((abcd * t - abca) / ab2) : 0;
+    } else if (s === 0 || s === 1) {
+      t = cd2 > 1e-12 ? clamp01((abcd * s + cdca) / cd2) : 0;
+    }
+  }
+  const px = a.x + abx * s;
+  const py = a.y + aby * s;
+  const qx = c.x + cdx * t;
+  const qy = c.y + cdy * t;
+  return Math.hypot(px - qx, py - qy);
+}
+
+/**
+ * True if non-adjacent path edges come closer than minGap
+ * (near-touching waists count as overlap).
+ */
+function pathTooNarrow(path, minGap) {
+  if (!path || path.length < 6) return false;
+  let pts = path;
+  // Cap sample count so O(n²) clearance stays cheap on large grids
+  const maxPts = 64;
+  if (pts.length > maxPts) {
+    const step = Math.ceil(pts.length / maxPts);
+    const sparse = [];
+    for (let i = 0; i < pts.length; i += step) sparse.push(pts[i]);
+    pts = sparse;
+  }
+  const n = pts.length;
+  // Skip edges that are still "local" along the contour (dense arc samples)
+  const skip = Math.max(4, Math.floor(n / 10));
+  for (let i = 0; i < n; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    for (let j = i + skip; j < n; j++) {
+      const along = Math.min(j - i, n - (j - i));
+      if (along < skip) continue;
+      const c = pts[j];
+      const d = pts[(j + 1) % n];
+      if (segSegDistance(a, b, c, d) < minGap) return true;
+    }
+  }
+  return false;
+}
+
+function contourOk(list) {
+  if (!list.length) return false;
+  try {
+    // Same step count as drawShape — avoid accepting shapes that paint blank
+    const result = geom().buildRubberBand(
+      centersForPins(list),
+      cellR,
+      ARC_STEPS
+    );
+    if (!result || !result.ok || result.selfIntersecting) return false;
+    if (!result.path || result.path.length < 3) return false;
+    // Near-zero waists only — intentional Hofmann bays stay allowed
+    const minGap = 0.18 * cellR;
+    if (pathTooNarrow(result.path, minGap)) return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Random connected Hofmann-like pin cycle using current grid + circle size.
+ * Caps pins at MAX_GEN_PINS, spreads across the grid, and validates with the
+ * same build as preview (fixes blank fills at 100–140%). Time-budgeted (~1.8s).
+ */
+function generatePins() {
+  layoutGrid();
+  const total = cols * rows;
+  if (total < 1) return;
+
+  const minSep = genMinSeparation();
+  const maxPins = genMaxPins();
+  // Sep-2 on small grids cannot fit 6 pins; scale floor with capacity
+  const capacity = Math.max(3, Math.floor(total / (minSep * minSep * 1.5)));
+  const minPins = Math.min(MIN_GEN_PINS, maxPins, capacity);
+  const deadline = performance.now() + 1800;
+  const softCap = 25;
+  let accepted = null;
+  let attempt = 0;
+
+  while (performance.now() < deadline && attempt < softCap && !accepted) {
+    const elapsedFrac =
+      (performance.now() - (deadline - 1800)) / 1800;
+    // Prefer fuller pin counts early; ease down if struggling
+    const hi = elapsedFrac > 0.5
+      ? Math.max(minPins, Math.floor(maxPins * 0.7))
+      : maxPins;
+    const lo = minPins;
+    const target =
+      lo >= hi ? lo : lo + Math.floor(Math.random() * (hi - lo + 1));
+
+    // Grow a bit larger than target when using boundary extraction (sep=1)
+    const growTarget =
+      minSep <= 1
+        ? Math.min(total, Math.max(target, Math.round(target * 1.35)))
+        : Math.min(total, target);
+
+    const blob = growConnectedBlob(growTarget, minSep);
+    const ordered = orderGenCycle(blob, minSep);
+    if (
+      ordered.length >= minPins &&
+      ordered.length <= maxPins &&
+      maxCollinearRun(ordered) <= 7 &&
+      contourOk(ordered)
+    ) {
+      accepted = ordered;
+    }
+    attempt++;
+  }
+
+  if (!accepted) {
+    let emergency = 0;
+    while (performance.now() < deadline && !accepted && emergency < 12) {
+      const size =
+        minPins + Math.floor(Math.random() * Math.max(1, maxPins - minPins));
+      const ordered = orderGenCycle(
+        growConnectedBlob(Math.min(total, size), minSep),
+        minSep
+      );
+      if (
+        ordered.length >= Math.min(4, minPins) &&
+        ordered.length <= maxPins &&
+        maxCollinearRun(ordered) <= 7 &&
+        contourOk(ordered)
+      ) {
+        accepted = ordered;
+      }
+      emergency++;
+    }
+  }
+
+  if (!accepted) {
+    const el = document.getElementById("status");
+    if (el) {
+      const msg = `Pins ${pins.length} · generate failed`;
+      el.textContent = msg;
+      lastStatus = msg;
+    }
+    return;
+  }
+
+  pushUndo();
+  pins = accepted.map((p) => ({ c: p.c, r: p.r }));
+  selected = -1;
+  lastPath = null;
+  lastSegments = null;
 }
 
 function layoutGrid() {
@@ -337,15 +784,6 @@ function placeOrSelectPin(c, r) {
   selected = insertAt;
 }
 
-function erasePin(c, r) {
-  const idx = pinIndex(c, r);
-  if (idx < 0) return;
-  pushUndo();
-  pins.splice(idx, 1);
-  if (selected === idx) selected = pins.length ? Math.min(idx, pins.length - 1) : -1;
-  else if (selected > idx) selected -= 1;
-}
-
 function deleteSelected() {
   if (selected < 0 || selected >= pins.length) return;
   pushUndo();
@@ -375,11 +813,7 @@ function mousePressed() {
     selected = -1;
     return;
   }
-  if (tool === "erase") {
-    erasePin(cell.c, cell.r);
-  } else {
-    placeOrSelectPin(cell.c, cell.r);
-  }
+  placeOrSelectPin(cell.c, cell.r);
 }
 
 function keyPressed() {
@@ -410,17 +844,9 @@ function keyPressed() {
     undoLast();
     return false;
   }
-  if (key === "1") setTool("pin");
-  if (key === "2") setTool("erase");
+  if (key === "g" || key === "G") generatePins();
   if (key === "c" || key === "C") clearPins();
   if (key === "s" || key === "S") saveSVG();
-}
-
-function setTool(name) {
-  tool = name;
-  document.querySelectorAll(".tool").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tool === name);
-  });
 }
 
 function setMode(name) {
@@ -496,10 +922,24 @@ function saveSVG() {
   URL.revokeObjectURL(url);
 }
 
-function wireUi() {
-  document.querySelectorAll(".tool").forEach((btn) => {
-    btn.addEventListener("click", () => setTool(btn.dataset.tool));
+function syncDotPresets(pct) {
+  document.querySelectorAll(".presets [data-dot]").forEach((btn) => {
+    btn.classList.toggle("active", Number(btn.dataset.dot) === pct);
   });
+}
+
+function setDotPercent(pct) {
+  const n = Math.max(50, Math.min(95, Math.round(pct)));
+  const dot = document.getElementById("dot");
+  const dotVal = document.getElementById("dotVal");
+  if (dot) dot.value = String(n);
+  if (dotVal) dotVal.textContent = `${n}%`;
+  dotScale = n / 100;
+  syncDotPresets(DOT_PRESETS.includes(n) ? n : -1);
+  layoutGrid();
+}
+
+function wireUi() {
   document.querySelectorAll(".mode").forEach((btn) => {
     btn.addEventListener("click", () => setMode(btn.dataset.mode));
   });
@@ -514,12 +954,13 @@ function wireUi() {
   });
 
   const dot = document.getElementById("dot");
-  const dotVal = document.getElementById("dotVal");
   dot.addEventListener("input", () => {
-    dotScale = Number(dot.value) / 100;
-    dotVal.textContent = `${dot.value}%`;
-    layoutGrid();
+    setDotPercent(Number(dot.value));
   });
+  document.querySelectorAll(".presets [data-dot]").forEach((btn) => {
+    btn.addEventListener("click", () => setDotPercent(Number(btn.dataset.dot)));
+  });
+  syncDotPresets(Math.round(dotScale * 100));
 
   document.getElementById("showGrid").addEventListener("change", (e) => {
     showGrid = e.target.checked;
@@ -528,6 +969,7 @@ function wireUi() {
     showOrder = e.target.checked;
   });
 
+  document.getElementById("generate").addEventListener("click", generatePins);
   document.getElementById("clear").addEventListener("click", clearPins);
   document.getElementById("saveSvg").addEventListener("click", saveSVG);
 }
