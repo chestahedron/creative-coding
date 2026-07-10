@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hofmann Rubber Band</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="panel">
+        <h1>Hofmann<br />Rubber Band</h1>
+        <p class="hint">
+          Click pins in wrap order. A placed pin stays selected — arrow keys
+          move it on the grid, Backspace deletes it. Click an existing pin to
+          select it. Concavity comes from turn direction.
+        </p>
+
+        <div class="tools" role="group" aria-label="Brush">
+          <button class="tool active" data-tool="pin" type="button">
+            Pin <kbd>1</kbd>
+          </button>
+          <button class="tool" data-tool="erase" type="button">
+            Erase <kbd>E</kbd>
+          </button>
+        </div>
+
+        <label>
+          <span>Grid size <em id="gridVal">8</em></span>
+          <input id="grid" type="range" min="3" max="16" step="1" value="8" />
+        </label>
+
+        <label>
+          <span>Circle size <em id="dotVal">100%</em></span>
+          <input id="dot" type="range" min="55" max="140" step="1" value="100" />
+        </label>
+
+        <div class="tools" role="group" aria-label="Style">
+          <button class="style active" data-style="fill" type="button">Fill</button>
+          <button class="style" data-style="outline" type="button">Outline</button>
+        </div>
+
+        <label class="check">
+          <input id="showGrid" type="checkbox" checked />
+          <span>Show grid</span>
+        </label>
+
+        <label class="check">
+          <input id="showOrder" type="checkbox" checked />
+          <span>Show order</span>
+        </label>
+
+        <p id="status" class="status">Pins 0</p>
+
+        <div class="buttons">
+          <button id="clear" type="button">Clear <kbd>C</kbd></button>
+          <button id="save" type="button">Save PNG <kbd>S</kbd></button>
+          <button id="saveSvg" class="primary" type="button">
+            Save SVG <kbd>V</kbd>
+          </button>
+        </div>
+      </aside>
+
+      <main id="stage"></main>
+    </div>
+
+    <script src="geometry.js"></script>
+    <script src="sketch.js"></script>
+  </body>
+</html>
