@@ -5,8 +5,8 @@
 const ARC_STEPS = 18;
 const PAPER = "#ece7dd";
 const INK = "#1c1b18";
-const GRID_LINE = "rgba(28, 27, 24, 0.28)";
-const GRID_STROKE = "rgba(28, 27, 24, 0.28)";
+const GRID_LINE = "rgba(28, 27, 24, 0.14)";
+const GRID_STROKE = "rgba(28, 27, 24, 0.14)";
 
 function geom() {
   const g = window.HofmannRubberband;
@@ -191,18 +191,43 @@ function drawGuideGrid() {
   }
 }
 
+function drawOrderLines() {
+  if (!showOrder || pins.length < 2) return;
+  stroke(28, 27, 24, 55);
+  strokeWeight(1);
+  drawingContext.setLineDash([6, 6]);
+  noFill();
+  for (let i = 0; i < pins.length; i++) {
+    const a = cellCenter(pins[i].c, pins[i].r);
+    const b = cellCenter(
+      pins[(i + 1) % pins.length].c,
+      pins[(i + 1) % pins.length].r
+    );
+    line(a.x, a.y, b.x, b.y);
+  }
+  drawingContext.setLineDash([]);
+}
+
 function drawPins() {
+  // Order lines first so markers and numbers sit on top
+  drawOrderLines();
+
   const gridStroke = Math.max(1, spacing * 0.014);
   for (let i = 0; i < pins.length; i++) {
     const { x, y } = cellCenter(pins[i].c, pins[i].r);
     const isSel = i === selected;
+    const markerR = Math.min(cellR, spacing * 0.22);
 
-    // Marker under the number
+    // Marker under the number — selected is inverted (solid dark + white digit)
     noStroke();
-    fill(28, 27, 24, isSel ? 70 : 40);
-    circle(x, y, Math.min(cellR, spacing * 0.22) * 2);
+    if (isSel) {
+      fill(INK);
+    } else {
+      fill(28, 27, 24, 40);
+    }
+    circle(x, y, markerR * 2);
 
-    // Selection = same diameter as the grid circle, dark stroke (no offset)
+    // Selection ring = same diameter as the grid circle
     if (isSel) {
       noFill();
       stroke(INK);
@@ -213,7 +238,7 @@ function drawPins() {
     if (showOrder) {
       const label = String(i + 1);
       const ts = Math.max(10, spacing * 0.28);
-      fill(INK);
+      fill(isSel ? PAPER : INK);
       noStroke();
       textSize(ts);
       textAlign(CENTER, BASELINE);
@@ -224,20 +249,6 @@ function drawPins() {
         baseline = y - (b.y + b.h / 2);
       }
       text(label, x, baseline);
-    }
-  }
-
-  if (showOrder && pins.length >= 2) {
-    stroke(28, 27, 24, 55);
-    strokeWeight(1);
-    noFill();
-    for (let i = 0; i < pins.length; i++) {
-      const a = cellCenter(pins[i].c, pins[i].r);
-      const b = cellCenter(
-        pins[(i + 1) % pins.length].c,
-        pins[(i + 1) % pins.length].r
-      );
-      line(a.x, a.y, b.x, b.y);
     }
   }
 }
