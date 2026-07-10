@@ -181,21 +181,6 @@ function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function chebyshev(a, b) {
-  return Math.max(Math.abs(a.c - b.c), Math.abs(a.r - b.r));
-}
-
-function genMinSeparation() {
-  // Large circles need sparser pins so tangents still exist
-  if (dotScale >= 1.0) return 2;
-  return 1;
-}
-
-function genMaxPins() {
-  if (dotScale >= 1.3) return Math.min(16, MAX_GEN_PINS);
-  return MAX_GEN_PINS;
-}
-
 function bboxAreaOf(cells) {
   let minC = Infinity;
   let maxC = -Infinity;
@@ -210,87 +195,60 @@ function bboxAreaOf(cells) {
   return (maxC - minC + 1) * (maxR - minR + 1);
 }
 
-function farEnough(cell, chosen, minSep) {
-  for (const p of chosen.values()) {
-    if (chebyshev(cell, p) < minSep) return false;
-  }
-  return true;
-}
-
-/** Frontier cells at Chebyshev distance exactly minSep from the set. */
-function sepFrontier(chosen, minSep) {
-  const frontier = [];
-  const seen = new Set();
-  for (const p of chosen.values()) {
-    for (let dc = -minSep; dc <= minSep; dc++) {
-      for (let dr = -minSep; dr <= minSep; dr++) {
-        if (Math.max(Math.abs(dc), Math.abs(dr)) !== minSep) continue;
-        const nc = p.c + dc;
-        const nr = p.r + dr;
-        if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
-        const k = keyOf(nc, nr);
-        if (chosen.has(k) || seen.has(k)) continue;
-        const cell = { c: nc, r: nr };
-        if (!farEnough(cell, chosen, minSep)) continue;
-        seen.add(k);
-        frontier.push(cell);
-      }
-    }
-  }
-  return frontier;
-}
-
-function pickSpreadSeed() {
-  // On larger grids, often start near an edge so the shape can span
-  if (cols >= 8 && Math.random() < 0.65) {
-    const edge = Math.floor(Math.random() * 4);
-    if (edge === 0) return { c: Math.floor(Math.random() * cols), r: 0 };
-    if (edge === 1) return { c: Math.floor(Math.random() * cols), r: rows - 1 };
-    if (edge === 2) return { c: 0, r: Math.floor(Math.random() * rows) };
-    return { c: cols - 1, r: Math.floor(Math.random() * rows) };
-  }
+function pickRandomSeed() {
   return {
     c: Math.floor(Math.random() * cols),
     r: Math.floor(Math.random() * rows),
   };
 }
 
+function pickSpreadSeed() {
+  // On larger grids, often start near an edge so the shape can span
+  if (Math.random() < 0.65) {
+    const edge = Math.floor(Math.random() * 4);
+    if (edge === 0) return { c: Math.floor(Math.random() * cols), r: 0 };
+    if (edge === 1) return { c: Math.floor(Math.random() * cols), r: rows - 1 };
+    if (edge === 2) return { c: 0, r: Math.floor(Math.random() * rows) };
+    return { c: cols - 1, r: Math.floor(Math.random() * rows) };
+  }
+  return pickRandomSeed();
+}
+
 /**
- * Grow a connected pin set that prefers spanning the grid (bbox growth).
- * minSep=1 → classic 4-connected; minSep=2 → no adjacent pins (high radius).
+ * Grow a 4-connected blob.
+ * useSpread=false (grids ≤6): random frontier — varied compact shapes.
+ * useSpread=true (grids ≥7): prefer bbox expansion so shapes span the grid.
  */
-function growConnectedBlob(targetSize, minSep) {
-  const sep = minSep || 1;
+function growConnectedBlob(targetSize, useSpread) {
   const total = cols * rows;
   const n = Math.max(1, Math.min(targetSize, total));
-  const seed = pickSpreadSeed();
+  const seed = useSpread ? pickSpreadSeed() : pickRandomSeed();
   const chosen = new Map();
   chosen.set(keyOf(seed.c, seed.r), { c: seed.c, r: seed.r });
 
   while (chosen.size < n) {
-    let frontier;
-    if (sep <= 1) {
-      frontier = [];
-      for (const cell of chosen.values()) {
-        for (const nb of neighbors4(cell.c, cell.r)) {
-          if (!chosen.has(keyOf(nb.c, nb.r))) frontier.push(nb);
-        }
+    const frontier = [];
+    for (const cell of chosen.values()) {
+      for (const nb of neighbors4(cell.c, cell.r)) {
+        if (!chosen.has(keyOf(nb.c, nb.r))) frontier.push(nb);
       }
-    } else {
-      frontier = sepFrontier(chosen, sep);
     }
     if (!frontier.length) break;
 
-    const baseArea = bboxAreaOf(chosen.values());
-    const scored = frontier.map((cell) => {
-      const trial = Array.from(chosen.values());
-      trial.push(cell);
-      return { cell, gain: bboxAreaOf(trial) - baseArea };
-    });
-    scored.sort((a, b) => b.gain - a.gain);
-    // Pick among the best few for variety while still spreading
-    const top = scored.slice(0, Math.min(4, scored.length));
-    const next = pickRandom(top).cell;
+    let next;
+    if (useSpread) {
+      const baseArea = bboxAreaOf(chosen.values());
+      const scored = frontier.map((cell) => {
+        const trial = Array.from(chosen.values());
+        trial.push(cell);
+        return { cell, gain: bboxAreaOf(trial) - baseArea };
+      });
+      scored.sort((a, b) => b.gain - a.gain);
+      const top = scored.slice(0, Math.min(4, scored.length));
+      next = pickRandom(top).cell;
+    } else {
+      next = pickRandom(frontier);
+    }
     chosen.set(keyOf(next.c, next.r), next);
   }
 
@@ -318,25 +276,6 @@ function blobBoundary(cells) {
     if (onEdge) edge.push({ c: p.c, r: p.r });
   }
   return edge.length ? edge : cells.map((p) => ({ c: p.c, r: p.r }));
-}
-
-/** Angular order around centroid — works for sparse (sep≥2) pin sets. */
-function orderByAngle(cells) {
-  if (cells.length <= 2) return cells.map((p) => ({ c: p.c, r: p.r }));
-  let cx = 0;
-  let cy = 0;
-  for (const p of cells) {
-    cx += p.c;
-    cy += p.r;
-  }
-  cx /= cells.length;
-  cy /= cells.length;
-  return cells
-    .map((p) => ({ c: p.c, r: p.r }))
-    .sort(
-      (a, b) =>
-        Math.atan2(a.r - cy, a.c - cx) - Math.atan2(b.r - cy, b.c - cx)
-    );
 }
 
 /**
@@ -385,11 +324,6 @@ function orderVisitCycle(cells) {
   }
 
   return order;
-}
-
-function orderGenCycle(cells, minSep) {
-  if (minSep >= 2) return orderByAngle(cells);
-  return orderVisitCycle(blobBoundary(cells));
 }
 
 /** Reject cycles with long collinear runs (orientation DFS would explode). */
@@ -515,43 +449,43 @@ function contourOk(list) {
 
 /**
  * Random connected Hofmann-like pin cycle using current grid + circle size.
- * Caps pins at MAX_GEN_PINS, spreads across the grid, and validates with the
- * same build as preview (fixes blank fills at 100–140%). Time-budgeted (~1.8s).
+ * Grids ≤6: fill-fraction + random growth (variety). Grids ≥7: bbox spread
+ * with a 6–24 pin band. Always validates with the same build as preview.
  */
 function generatePins() {
   layoutGrid();
   const total = cols * rows;
   if (total < 1) return;
 
-  const minSep = genMinSeparation();
-  const maxPins = genMaxPins();
-  // Sep-2 on small grids cannot fit 6 pins; scale floor with capacity
-  const capacity = Math.max(3, Math.floor(total / (minSep * minSep * 1.5)));
-  const minPins = Math.min(MIN_GEN_PINS, maxPins, capacity);
+  const useSpread = cols >= 7;
+  const maxPins = MAX_GEN_PINS;
+  const minPins = useSpread ? MIN_GEN_PINS : 3;
   const deadline = performance.now() + 1800;
   const softCap = 25;
   let accepted = null;
   let attempt = 0;
 
   while (performance.now() < deadline && attempt < softCap && !accepted) {
-    const elapsedFrac =
-      (performance.now() - (deadline - 1800)) / 1800;
-    // Prefer fuller pin counts early; ease down if struggling
-    const hi = elapsedFrac > 0.5
-      ? Math.max(minPins, Math.floor(maxPins * 0.7))
-      : maxPins;
-    const lo = minPins;
-    const target =
-      lo >= hi ? lo : lo + Math.floor(Math.random() * (hi - lo + 1));
+    let growTarget;
+    if (!useSpread) {
+      // Compact random blobs — avoid filling the whole small grid
+      const fill = 0.35 + Math.random() * 0.35; // ~35–70%
+      growTarget = Math.max(3, Math.round(total * fill));
+    } else {
+      const elapsedFrac =
+        (performance.now() - (deadline - 1800)) / 1800;
+      const hi =
+        elapsedFrac > 0.5
+          ? Math.max(minPins, Math.floor(maxPins * 0.7))
+          : maxPins;
+      const lo = minPins;
+      const target =
+        lo >= hi ? lo : lo + Math.floor(Math.random() * (hi - lo + 1));
+      growTarget = Math.min(total, Math.max(target, Math.round(target * 1.35)));
+    }
 
-    // Grow a bit larger than target when using boundary extraction (sep=1)
-    const growTarget =
-      minSep <= 1
-        ? Math.min(total, Math.max(target, Math.round(target * 1.35)))
-        : Math.min(total, target);
-
-    const blob = growConnectedBlob(growTarget, minSep);
-    const ordered = orderGenCycle(blob, minSep);
+    const blob = growConnectedBlob(growTarget, useSpread);
+    const ordered = orderVisitCycle(blobBoundary(blob));
     if (
       ordered.length >= minPins &&
       ordered.length <= maxPins &&
@@ -566,14 +500,15 @@ function generatePins() {
   if (!accepted) {
     let emergency = 0;
     while (performance.now() < deadline && !accepted && emergency < 12) {
-      const size =
-        minPins + Math.floor(Math.random() * Math.max(1, maxPins - minPins));
-      const ordered = orderGenCycle(
-        growConnectedBlob(Math.min(total, size), minSep),
-        minSep
+      const growTarget = !useSpread
+        ? Math.max(3, Math.round(total * (0.3 + Math.random() * 0.35)))
+        : minPins +
+          Math.floor(Math.random() * Math.max(1, maxPins - minPins));
+      const ordered = orderVisitCycle(
+        blobBoundary(growConnectedBlob(Math.min(total, growTarget), useSpread))
       );
       if (
-        ordered.length >= Math.min(4, minPins) &&
+        ordered.length >= Math.min(3, minPins) &&
         ordered.length <= maxPins &&
         maxCollinearRun(ordered) <= 7 &&
         contourOk(ordered)
