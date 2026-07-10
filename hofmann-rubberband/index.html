@@ -17,6 +17,17 @@
           in visit order. Shift+Z undoes the last change.
         </p>
 
+        <div class="tools" role="group" aria-label="Mode">
+          <button class="mode active" data-mode="edit" type="button">
+            Edit
+          </button>
+          <button class="mode" data-mode="preview" type="button">
+            Preview
+          </button>
+        </div>
+
+        <hr class="sep" />
+
         <div class="tools" role="group" aria-label="Brush">
           <button class="tool active" data-tool="pin" type="button">
             Pin <kbd>1</kbd>
@@ -35,11 +46,6 @@
           <span>Circle size <em id="dotVal">100%</em></span>
           <input id="dot" type="range" min="55" max="140" step="1" value="100" />
         </label>
-
-        <div class="tools" role="group" aria-label="Style">
-          <button class="style active" data-style="fill" type="button">Fill</button>
-          <button class="style" data-style="outline" type="button">Outline</button>
-        </div>
 
         <label class="check">
           <input id="showGrid" type="checkbox" checked />

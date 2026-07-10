@@ -37,7 +37,8 @@ let originX = 0;
 let originY = 0;
 
 let tool = "pin";
-let style = "fill";
+/** "edit" = outline + pins; "preview" = filled shape only */
+let mode = "edit";
 let layer;
 let lastStatus = "";
 /** Cached contour for export */
@@ -73,8 +74,9 @@ function setup() {
 function draw() {
   background(PAPER);
   try {
-    if (showGrid) drawGuideGrid();
-    drawPins();
+    const preview = mode === "preview";
+    if (showGrid && !preview) drawGuideGrid();
+    if (!preview) drawPins();
     drawShape();
   } catch (err) {
     if (!draw._lastErr || millis() - draw._lastErr > 1000) {
@@ -238,7 +240,7 @@ function drawShape() {
   if (!path || path.length < 3) return;
   lastPath = path;
 
-  if (style === "outline") {
+  if (mode === "edit") {
     noFill();
     stroke(INK);
     strokeWeight(2);
@@ -248,6 +250,7 @@ function drawShape() {
     return;
   }
 
+  // Preview: filled form only
   layer.clear();
   layer.noStroke();
   layer.fill(INK);
@@ -321,6 +324,7 @@ function moveSelected(dc, dr) {
 }
 
 function mousePressed() {
+  if (mode === "preview") return;
   if (mouseX < 0 || mouseY < 0 || mouseX > width || mouseY > height) return;
   const cell = cellAt(mouseX, mouseY);
   if (!cell) {
@@ -374,10 +378,10 @@ function setTool(name) {
   });
 }
 
-function setStyle(name) {
-  style = name;
-  document.querySelectorAll(".style").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.style === name);
+function setMode(name) {
+  mode = name;
+  document.querySelectorAll(".mode").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.mode === name);
   });
 }
 
@@ -404,7 +408,8 @@ function buildSVG() {
   );
   parts.push(`<rect width="100%" height="100%" fill="${PAPER}"/>`);
 
-  if (showGrid) {
+  const exportPreview = mode === "preview";
+  if (showGrid && !exportPreview) {
     const sw = Math.max(1, spacing * 0.014);
     parts.push(`<g fill="none" stroke="${GRID_STROKE}" stroke-width="${fmt(sw)}">`);
     for (let r = 0; r < rows; r++) {
@@ -432,7 +437,7 @@ function buildSVG() {
 
   if (path && path.length >= 3) {
     const d = pathToSvgD(path);
-    if (style === "outline") {
+    if (mode === "edit") {
       parts.push(
         `<path d="${d}" fill="none" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/>`
       );
@@ -466,8 +471,8 @@ function wireUi() {
   document.querySelectorAll(".tool").forEach((btn) => {
     btn.addEventListener("click", () => setTool(btn.dataset.tool));
   });
-  document.querySelectorAll(".style").forEach((btn) => {
-    btn.addEventListener("click", () => setStyle(btn.dataset.style));
+  document.querySelectorAll(".mode").forEach((btn) => {
+    btn.addEventListener("click", () => setMode(btn.dataset.mode));
   });
 
   const grid = document.getElementById("grid");

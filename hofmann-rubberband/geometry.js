@@ -292,8 +292,68 @@
   }
 
   /**
-   * For flat pins, try both cw/ccw when picking tangents and commit
-   * the first consistent assignment around the cycle.
+   * Arc length at a pin given arrive/leave contacts and wrap sense.
+   * Returns radians in [0, 2π).
+   */
+  function arcSpanAt(node, arrive, leave, orient) {
+    const a0 = Math.atan2(arrive.y - node.y, arrive.x - node.x);
+    const a1 = Math.atan2(leave.y - node.y, leave.x - node.x);
+    const mathCcw = orientMathCcw(orient);
+    let delta = a1 - a0;
+    if (mathCcw) {
+      while (delta < 0) delta += TWO_PI;
+      while (delta >= TWO_PI) delta -= TWO_PI;
+    } else {
+      while (delta > 0) delta -= TWO_PI;
+      while (delta <= -TWO_PI) delta += TWO_PI;
+    }
+    return Math.abs(delta);
+  }
+
+  function collectLinks(pins, orients, radius) {
+    const n = pins.length;
+    const links = [];
+    for (let i = 0; i < n; i++) {
+      const t = pickTangent(
+        pins[i],
+        pins[(i + 1) % n],
+        orients[i],
+        orients[(i + 1) % n],
+        radius
+      );
+      if (!t) return null;
+      links.push(t);
+    }
+    return links;
+  }
+
+  /**
+   * Score an orientation assignment. Collinear (flat) pins should wrap
+   * with a real arc — not collapse onto the shared outer tangent.
+   */
+  function scoreAssignment(pins, orients, links, flatIdx) {
+    const n = pins.length;
+    let flatArc = 0;
+    let minArc = Infinity;
+    let overPi = 0;
+    for (let i = 0; i < n; i++) {
+      const span = arcSpanAt(
+        pins[i],
+        links[(i - 1 + n) % n].pB,
+        links[i].pA,
+        orients[i]
+      );
+      if (span < minArc) minArc = span;
+      if (span > Math.PI + 0.05) overPi += 1;
+      if (flatIdx.has(i)) flatArc += span;
+    }
+    // Prefer wrapping flats; lightly penalize >π arcs and tiny corners
+    return flatArc * 10 + minArc - overPi * 5;
+  }
+
+  /**
+   * For flat pins, try both cw/ccw and keep the assignment that wraps
+   * collinear mid-edge pins instead of collapsing them to a point.
    */
   function assignOrientations(pins, radius) {
     const n = pins.length;
@@ -302,41 +362,59 @@
     for (let i = 0; i < n; i++) {
       if (base[i] === "flat") free.push(i);
     }
+    const flatIdx = new Set(free);
 
     if (!free.length) {
       return tryLinks(pins, base, radius) ? base : null;
     }
 
-    // Brute-force flats (usually 0–2 on a lattice)
+    // Prefer opposite wrap from neighbors so a mid-edge pin dents/wraps
+    // instead of sharing the collinear outer tangent (zero arc).
+    function preferredOrient(i, trial) {
+      const prev = trial[(i - 1 + n) % n];
+      const next = trial[(i + 1) % n];
+      const neighbor =
+        prev !== "flat" ? prev : next !== "flat" ? next : null;
+      if (neighbor === "cw") return "ccw";
+      if (neighbor === "ccw") return "cw";
+      return "cw";
+    }
+
+    let best = null;
+    let bestScore = -Infinity;
     const choices = [];
+
     function dfs(k) {
       if (k === free.length) {
         const trial = base.slice();
         for (let i = 0; i < free.length; i++) {
           trial[free[i]] = choices[i];
         }
-        if (tryLinks(pins, trial, radius)) return trial;
-        return null;
+        const links = collectLinks(pins, trial, radius);
+        if (!links) return;
+        const score = scoreAssignment(pins, trial, links, flatIdx);
+        if (score > bestScore) {
+          bestScore = score;
+          best = trial;
+        }
+        return;
       }
-      for (const o of ["cw", "ccw"]) {
+      const idx = free[k];
+      const trialSoFar = base.slice();
+      for (let i = 0; i < k; i++) trialSoFar[free[i]] = choices[i];
+      const pref = preferredOrient(idx, trialSoFar);
+      const order = pref === "cw" ? ["cw", "ccw"] : ["ccw", "cw"];
+      for (const o of order) {
         choices[k] = o;
-        const hit = dfs(k + 1);
-        if (hit) return hit;
+        dfs(k + 1);
       }
-      return null;
     }
-    return dfs(0);
+    dfs(0);
+    return best;
   }
 
   function tryLinks(pins, orients, radius) {
-    const n = pins.length;
-    for (let i = 0; i < n; i++) {
-      const A = pins[i];
-      const B = pins[(i + 1) % n];
-      const t = pickTangent(A, B, orients[i], orients[(i + 1) % n], radius);
-      if (!t) return false;
-    }
-    return true;
+    return collectLinks(pins, orients, radius) !== null;
   }
 
   /**

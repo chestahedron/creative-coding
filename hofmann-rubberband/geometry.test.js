@@ -121,6 +121,45 @@ test("4-pin rectangle hull order: rounded rect", () => {
   );
 });
 
+// --- Collinear mid-edge pin must wrap, not collapse ---
+test("collinear mid-edge pin wraps with a real arc", () => {
+  // Rectangle with an extra pin on the bottom edge (like pin 4 on a flat side)
+  const pins = [pt(1, 1), pt(7, 1), pt(7, 4), pt(4, 4), pt(1, 4)];
+  const result = G.buildRubberBand(pins, radius, 18);
+  assert(result.ok, `ok (${result.reason})`);
+  assert(!result.selfIntersecting, "no self-intersect");
+  const mid = pins[3];
+  assert(result.orients[3] !== "flat", "mid orient committed");
+  // Path should follow a meaningful arc on the mid pin (not a single tangent point)
+  let onCirc = 0;
+  const angs = [];
+  for (const p of result.path) {
+    const d = Math.hypot(p.x - mid.x, p.y - mid.y);
+    if (Math.abs(d - radius) < 1.5) {
+      onCirc++;
+      angs.push(Math.atan2(p.y - mid.y, p.x - mid.x));
+    }
+  }
+  assert(onCirc >= 4, `enough circumference samples (${onCirc})`);
+  angs.sort((a, b) => a - b);
+  let span = angs[angs.length - 1] - angs[0];
+  // Handle wrap across ±π
+  for (let i = 1; i < angs.length; i++) {
+    const gap = angs[i] - angs[i - 1];
+    if (gap > Math.PI) {
+      span = Math.PI * 2 - gap;
+      break;
+    }
+  }
+  assert(span > 0.35, `mid arc span ${span.toFixed(3)} should be visible`);
+  // Flat outer tangent would leave the mid pin with the same wrap as corners
+  assert(
+    result.orients[3] !== result.orients[2] ||
+      result.orients[3] !== result.orients[4],
+    "mid wrap differs from a neighbor (not collapsed collinear)"
+  );
+});
+
 // --- Crossing / bow-tie visit order ---
 test("bow-tie visit order is self-intersecting or rejected", () => {
   // Visit order crosses: TL → BR → TR → BL

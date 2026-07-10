@@ -120,6 +120,12 @@ input[type="checkbox"] {
   gap: 8px;
 }
 
+.sep {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 0;
+}
+
 .buttons {
   display: flex;
   flex-direction: column;
@@ -147,14 +153,14 @@ button:hover {
 }
 
 button.tool.active,
-button.style.active,
+button.mode.active,
 button.primary {
   background: var(--ink);
   color: var(--paper);
 }
 
 button.tool.active:hover,
-button.style.active:hover,
+button.mode.active:hover,
 button.primary:hover {
   background: #000;
 }
