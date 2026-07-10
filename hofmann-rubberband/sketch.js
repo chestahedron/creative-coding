@@ -192,28 +192,38 @@ function drawGuideGrid() {
 }
 
 function drawPins() {
+  const gridStroke = Math.max(1, spacing * 0.014);
   for (let i = 0; i < pins.length; i++) {
     const { x, y } = cellCenter(pins[i].c, pins[i].r);
     const isSel = i === selected;
 
+    // Marker under the number
     noStroke();
     fill(28, 27, 24, isSel ? 70 : 40);
     circle(x, y, Math.min(cellR, spacing * 0.22) * 2);
 
+    // Selection = same diameter as the grid circle, dark stroke (no offset)
     if (isSel) {
       noFill();
       stroke(INK);
-      strokeWeight(2);
-      circle(x, y, cellR * 2.05);
+      strokeWeight(gridStroke);
+      circle(x, y, cellR * 2);
     }
 
     if (showOrder) {
+      const label = String(i + 1);
+      const ts = Math.max(10, spacing * 0.28);
       fill(INK);
       noStroke();
+      textSize(ts);
       textAlign(CENTER, BASELINE);
-      textSize(Math.max(10, spacing * 0.28));
-      // Digits sit on the baseline with little descent — center on ascent.
-      text(String(i + 1), x, y + textAscent() * 0.5);
+      // Center on the glyph's ink box (digits have almost no descent).
+      let baseline = y + ts * 0.32;
+      if (uiFont && typeof uiFont.textBounds === "function") {
+        const b = uiFont.textBounds(label, 0, 0, ts);
+        baseline = y - (b.y + b.h / 2);
+      }
+      text(label, x, baseline);
     }
   }
 
