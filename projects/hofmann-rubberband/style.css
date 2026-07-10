@@ -65,7 +65,7 @@ body {
 }
 
 #panel h1 {
-  font-size: 1.375rem;
+  font-size: 1.75rem;
   font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.2;
@@ -394,6 +394,10 @@ button.primary kbd {
     border-right: none;
     border-bottom: 0.0625rem solid var(--line);
     padding-bottom: 1.75rem;
+  }
+
+  #panel h1 .title-break {
+    display: none;
   }
 
   #stage {
