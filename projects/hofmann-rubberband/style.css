@@ -224,6 +224,14 @@ input[type="checkbox"] {
   border-right: 0.0625rem solid var(--line);
 }
 
+.buttons .presets {
+  margin-top: 0.125rem;
+}
+
+.buttons .sep {
+  margin: 0.35rem 0 0.15rem;
+}
+
 button {
   display: flex;
   justify-content: space-between;

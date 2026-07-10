@@ -5,7 +5,6 @@
 const ARC_STEPS = 18;
 /** Hard ceiling for generated pin cycles (~grid-10 working max) */
 const MAX_GEN_PINS = 24;
-const MIN_GEN_PINS = 6;
 /** Shared HSB palette (0–360, 0–100, 0–100); S ≈ 60% of prior.
  *  Named PALETTE so it does not shadow p5's HSB colorMode constant. */
 const PALETTE = {
@@ -41,6 +40,13 @@ let redoStack = [];
 const UNDO_MAX = 80;
 const DOT_PRESETS = [50, 66, 75, 90];
 const GRID_PRESETS = [4, 5, 7, 9];
+/** Pin-density bands for Generate (never exceeds MAX_GEN_PINS). */
+const GEN_DENSITY = {
+  less: { fill: [0.25, 0.4], pins: [6, 11] },
+  medium: { fill: [0.4, 0.58], pins: [10, 17] },
+  more: { fill: [0.58, 0.75], pins: [16, 24] },
+};
+let genDensity = "medium";
 
 let spacing = 40;
 let cellR = 20;
@@ -466,8 +472,8 @@ function contourOk(list) {
 
 /**
  * Random connected Hofmann-like pin cycle using current grid + circle size.
- * Grids ≤6: fill-fraction + random growth (variety). Grids ≥7: bbox spread
- * with a 6–24 pin band. Always validates with the same build as preview.
+ * Density (less/medium/more) narrows fill or pin bands; never exceeds
+ * MAX_GEN_PINS. Grids ≤6: fill-fraction growth. Grids ≥7: bbox spread.
  */
 function generatePins() {
   layoutGrid();
@@ -475,8 +481,11 @@ function generatePins() {
   if (total < 1) return;
 
   const useSpread = cols >= 7;
-  const maxPins = MAX_GEN_PINS;
-  const minPins = useSpread ? MIN_GEN_PINS : 3;
+  const band = GEN_DENSITY[genDensity] || GEN_DENSITY.medium;
+  const [fillLo, fillHi] = band.fill;
+  const [pinLo, pinHi] = band.pins;
+  const maxPins = Math.min(MAX_GEN_PINS, pinHi);
+  const minPins = useSpread ? Math.min(pinLo, maxPins) : 3;
   const deadline = performance.now() + 1800;
   const softCap = 25;
   let accepted = null;
@@ -484,28 +493,29 @@ function generatePins() {
 
   while (performance.now() < deadline && attempt < softCap && !accepted) {
     let growTarget;
+    let acceptLo = minPins;
+    let acceptHi = maxPins;
+
     if (!useSpread) {
-      // Compact random blobs — avoid filling the whole small grid
-      const fill = 0.35 + Math.random() * 0.35; // ~35–70%
+      const fill = fillLo + Math.random() * Math.max(0, fillHi - fillLo);
       growTarget = Math.max(3, Math.round(total * fill));
+      acceptLo = 3;
+      acceptHi = maxPins;
     } else {
-      const elapsedFrac =
-        (performance.now() - (deadline - 1800)) / 1800;
-      const hi =
-        elapsedFrac > 0.5
-          ? Math.max(minPins, Math.floor(maxPins * 0.7))
-          : maxPins;
-      const lo = minPins;
+      const lo = Math.min(pinLo, maxPins);
+      const hi = maxPins;
       const target =
         lo >= hi ? lo : lo + Math.floor(Math.random() * (hi - lo + 1));
       growTarget = Math.min(total, Math.max(target, Math.round(target * 1.35)));
+      acceptLo = lo;
+      acceptHi = hi;
     }
 
     const blob = growConnectedBlob(growTarget, useSpread);
     const ordered = orderVisitCycle(blobBoundary(blob));
     if (
-      ordered.length >= minPins &&
-      ordered.length <= maxPins &&
+      ordered.length >= acceptLo &&
+      ordered.length <= acceptHi &&
       maxCollinearRun(ordered) <= 7 &&
       contourOk(ordered)
     ) {
@@ -518,14 +528,21 @@ function generatePins() {
     let emergency = 0;
     while (performance.now() < deadline && !accepted && emergency < 12) {
       const growTarget = !useSpread
-        ? Math.max(3, Math.round(total * (0.3 + Math.random() * 0.35)))
-        : minPins +
-          Math.floor(Math.random() * Math.max(1, maxPins - minPins));
+        ? Math.max(
+            3,
+            Math.round(
+              total * (fillLo + Math.random() * Math.max(0, fillHi - fillLo))
+            )
+          )
+        : Math.min(
+            maxPins,
+            pinLo + Math.floor(Math.random() * Math.max(1, maxPins - pinLo + 1))
+          );
       const ordered = orderVisitCycle(
         blobBoundary(growConnectedBlob(Math.min(total, growTarget), useSpread))
       );
       if (
-        ordered.length >= Math.min(3, minPins) &&
+        ordered.length >= 3 &&
         ordered.length <= maxPins &&
         maxCollinearRun(ordered) <= 7 &&
         contourOk(ordered)
@@ -902,6 +919,18 @@ function setGridSize(size) {
   layoutGrid();
 }
 
+function syncDensityPresets(name) {
+  document.querySelectorAll(".presets [data-density]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.density === name);
+  });
+}
+
+function setGenDensity(name) {
+  if (!GEN_DENSITY[name]) return;
+  genDensity = name;
+  syncDensityPresets(name);
+}
+
 function setDotPercent(pct) {
   const n = Math.max(33, Math.min(95, Math.round(pct)));
   const dot = document.getElementById("dot");
@@ -935,6 +964,11 @@ function wireUi() {
     btn.addEventListener("click", () => setDotPercent(Number(btn.dataset.dot)));
   });
   syncDotPresets(Math.round(dotScale * 100));
+
+  document.querySelectorAll(".presets [data-density]").forEach((btn) => {
+    btn.addEventListener("click", () => setGenDensity(btn.dataset.density));
+  });
+  syncDensityPresets(genDensity);
 
   document.getElementById("showGrid").addEventListener("change", (e) => {
     showGrid = e.target.checked;
