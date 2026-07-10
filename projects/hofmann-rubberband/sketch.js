@@ -39,7 +39,7 @@ let undoStack = [];
 let redoStack = [];
 const UNDO_MAX = 80;
 const DOT_PRESETS = [50, 66, 75, 90];
-const GRID_PRESETS = [4, 5, 7, 9];
+const GRID_PRESETS = [4, 5, 6, 8];
 /** Pin-count bands for Generate (never exceeds MAX_GEN_PINS). */
 const GEN_PINS = {
   less: { fill: [0.25, 0.4], pins: [6, 11] },
