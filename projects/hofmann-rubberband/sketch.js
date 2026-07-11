@@ -44,6 +44,10 @@ const UNDO_MAX = 80;
 const DOT_PRESETS = [50, 66, 75, 90];
 const GRID_PRESETS = [4, 5, 6, 8];
 let genPins = "more";
+let genStride = 3;
+let genMeander = 5;
+const STRIDE_PRESETS = [1, 3, 5, 8];
+const MEANDER_PRESETS = [0, 3, 5, 10];
 
 let spacing = 40;
 let cellR = 20;
@@ -222,6 +226,8 @@ function generatePins() {
   const accepted = genApi().tryGenerate({
     gridN,
     genPins,
+    genStride,
+    genMeander,
     cellCenter,
     cellR,
     arcSteps: ARC_STEPS,
@@ -561,6 +567,26 @@ function setGenPins(name) {
   syncPreset("pins", name);
 }
 
+function setGenStride(level) {
+  const n = Math.max(1, Math.min(10, Math.round(level)));
+  const stride = document.getElementById("stride");
+  const strideVal = document.getElementById("strideVal");
+  if (stride) stride.value = String(n);
+  if (strideVal) strideVal.textContent = String(n);
+  genStride = n;
+  syncPreset("stride", STRIDE_PRESETS.includes(n) ? n : -1);
+}
+
+function setGenMeander(level) {
+  const n = Math.max(0, Math.min(10, Math.round(level)));
+  const meander = document.getElementById("meander");
+  const meanderVal = document.getElementById("meanderVal");
+  if (meander) meander.value = String(n);
+  if (meanderVal) meanderVal.textContent = String(n);
+  genMeander = n;
+  syncPreset("meander", MEANDER_PRESETS.includes(n) ? n : -1);
+}
+
 function setDotPercent(pct) {
   const n = Math.max(33, Math.min(95, Math.round(pct)));
   const dot = document.getElementById("dot");
@@ -599,6 +625,26 @@ function wireUi() {
     btn.addEventListener("click", () => setGenPins(btn.dataset.pins));
   });
   syncPreset("pins", genPins);
+
+  const stride = document.getElementById("stride");
+  stride.addEventListener("input", () => {
+    setGenStride(Number(stride.value));
+  });
+  document.querySelectorAll(".presets [data-stride]").forEach((btn) => {
+    btn.addEventListener("click", () => setGenStride(Number(btn.dataset.stride)));
+  });
+  setGenStride(genStride);
+
+  const meander = document.getElementById("meander");
+  meander.addEventListener("input", () => {
+    setGenMeander(Number(meander.value));
+  });
+  document.querySelectorAll(".presets [data-meander]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      setGenMeander(Number(btn.dataset.meander))
+    );
+  });
+  setGenMeander(genMeander);
 
   document.getElementById("showGrid").addEventListener("change", (e) => {
     showGrid = e.target.checked;

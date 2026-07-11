@@ -56,28 +56,6 @@
           </button>
         </div>
 
-        <label>
-          <span>Grid size <em id="gridVal">4</em></span>
-          <input id="grid" type="range" min="3" max="16" step="1" value="4" />
-          <div class="presets" role="group" aria-label="Grid size presets">
-            <button type="button" data-grid="4" class="active">4</button>
-            <button type="button" data-grid="5">5</button>
-            <button type="button" data-grid="6">6</button>
-            <button type="button" data-grid="8">8</button>
-          </div>
-        </label>
-
-        <label>
-          <span>Circle size <em id="dotVal">75%</em></span>
-          <input id="dot" type="range" min="33" max="95" step="1" value="75" />
-          <div class="presets" role="group" aria-label="Circle size presets">
-            <button type="button" data-dot="50">50%</button>
-            <button type="button" data-dot="66">66%</button>
-            <button type="button" data-dot="75" class="active">75%</button>
-            <button type="button" data-dot="90">90%</button>
-          </div>
-        </label>
-
         <div class="checks">
           <label class="check">
             <input id="showGrid" type="checkbox" checked />
@@ -90,25 +68,40 @@
           </label>
         </div>
 
+        <hr class="sep" />
+
+        <div class="field">
+          <div class="field-head" id="gridLabel">
+            <span>Grid size</span>
+            <em id="gridVal">4</em>
+          </div>
+          <input id="grid" type="range" min="3" max="16" step="1" value="4" aria-labelledby="gridLabel" />
+          <div class="presets" role="group" aria-label="Grid size presets">
+            <button type="button" data-grid="4" class="active">4</button>
+            <button type="button" data-grid="5">5</button>
+            <button type="button" data-grid="6">6</button>
+            <button type="button" data-grid="8">8</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-head" id="dotLabel">
+            <span>Circle size</span>
+            <em id="dotVal">75%</em>
+          </div>
+          <input id="dot" type="range" min="33" max="95" step="1" value="75" aria-labelledby="dotLabel" />
+          <div class="presets" role="group" aria-label="Circle size presets">
+            <button type="button" data-dot="50">50%</button>
+            <button type="button" data-dot="66">66%</button>
+            <button type="button" data-dot="75" class="active">75%</button>
+            <button type="button" data-dot="90">90%</button>
+          </div>
+        </div>
+
         <p id="status" class="status">Pins 0</p>
       </aside>
 
-      <main id="stage"></main>
-
-      <div class="buttons">
-        <button id="generate" class="primary" type="button">
-          <span class="btn-main">
-            <span class="icon" data-icon="generate" aria-hidden="true"></span>
-            Generate
-          </span>
-          <kbd>G</kbd>
-        </button>
-        <div class="presets" role="group" aria-label="Pins">
-          <button type="button" data-pins="less">Less</button>
-          <button type="button" data-pins="medium">Medium</button>
-          <button type="button" data-pins="more" class="active">More</button>
-        </div>
-        <hr class="sep" />
+      <div class="actions">
         <button id="clear" type="button">
           <span class="btn-main">
             <span class="icon" data-icon="clear" aria-hidden="true"></span>
@@ -116,7 +109,7 @@
           </span>
           <kbd>C</kbd>
         </button>
-        <button id="saveSvg" type="button">
+        <button id="saveSvg" class="primary" type="button">
           <span class="btn-main">
             <span class="icon" data-icon="download" aria-hidden="true"></span>
             Save SVG
@@ -124,6 +117,57 @@
           <kbd>S</kbd>
         </button>
       </div>
+
+      <main id="stage"></main>
+
+      <aside id="generate-panel">
+        <button id="generate" class="primary" type="button">
+          <span class="btn-main">
+            <span class="icon" data-icon="generate" aria-hidden="true"></span>
+            Generate
+          </span>
+          <kbd>G</kbd>
+        </button>
+
+        <hr class="sep" />
+
+        <div class="field">
+          <div class="field-head">Pin amount</div>
+          <div class="presets" role="group" aria-label="Pin amount presets">
+            <button type="button" data-pins="less">Less</button>
+            <button type="button" data-pins="medium">Medium</button>
+            <button type="button" data-pins="more" class="active">More</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-head" id="strideLabel">
+            <span>Stride</span>
+            <em id="strideVal">3</em>
+          </div>
+          <input id="stride" type="range" min="1" max="10" step="1" value="3" aria-labelledby="strideLabel" />
+          <div class="presets" role="group" aria-label="Stride presets">
+            <button type="button" data-stride="1">1</button>
+            <button type="button" data-stride="3" class="active">3</button>
+            <button type="button" data-stride="5">5</button>
+            <button type="button" data-stride="8">8</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-head" id="meanderLabel">
+            <span>Meander</span>
+            <em id="meanderVal">5</em>
+          </div>
+          <input id="meander" type="range" min="0" max="10" step="1" value="5" aria-labelledby="meanderLabel" />
+          <div class="presets" role="group" aria-label="Meander presets">
+            <button type="button" data-meander="0">0</button>
+            <button type="button" data-meander="3">3</button>
+            <button type="button" data-meander="5" class="active">5</button>
+            <button type="button" data-meander="10">10</button>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <script src="geometry.js"></script>

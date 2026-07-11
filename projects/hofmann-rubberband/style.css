@@ -46,7 +46,7 @@ body {
 
 #app {
   display: grid;
-  grid-template-columns: 16.25rem 1fr;
+  grid-template-columns: 16.25rem 1fr 16.25rem;
   grid-template-rows: 1fr auto;
   min-height: 100vh;
 }
@@ -103,7 +103,7 @@ body {
   text-transform: uppercase;
 }
 
-label {
+.field {
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -112,20 +112,17 @@ label {
   letter-spacing: 0.05em;
 }
 
-label > span {
+.field-head {
   display: flex;
   justify-content: space-between;
-}
-
-label:not(.check) > span {
   margin-bottom: 0.55rem;
 }
 
-label:not(.check) > input[type="range"] {
+.field > input[type="range"] {
   margin-bottom: 0.7rem;
 }
 
-label em {
+.field em {
   font-style: normal;
   color: var(--muted);
 }
@@ -191,9 +188,13 @@ input[type="range"]::-moz-range-thumb {
 }
 
 label.check {
+  display: flex;
   flex-direction: row;
   align-items: center;
   gap: 0.5rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   cursor: pointer;
 }
 
@@ -221,7 +222,7 @@ input[type="checkbox"] {
   margin: 0;
 }
 
-.buttons {
+.actions {
   grid-column: 1;
   grid-row: 2;
   display: flex;
@@ -231,12 +232,15 @@ input[type="checkbox"] {
   border-right: 0.0625rem solid var(--line);
 }
 
-.buttons .presets {
-  margin-top: 0.125rem;
-}
-
-.buttons .sep {
-  margin: 0.35rem 0 0.15rem;
+#generate-panel {
+  grid-column: 3;
+  grid-row: 1 / -1;
+  padding: 1.75rem 1.375rem;
+  border-left: 0.0625rem solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
 }
 
 button {
@@ -398,12 +402,18 @@ button.primary kbd {
 @media (max-width: 43.75rem) {
   #app {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: none;
+  }
+
+  #panel,
+  .actions,
+  #stage,
+  #generate-panel {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   #panel {
-    grid-column: 1;
-    grid-row: 1;
     border-right: none;
     border-bottom: 0.0625rem solid var(--line);
     padding-bottom: 1.75rem;
@@ -413,17 +423,19 @@ button.primary kbd {
     display: none;
   }
 
+  .actions {
+    border-right: none;
+    border-bottom: 0.0625rem solid var(--line);
+    padding: 1.25rem 1.375rem;
+  }
+
   #stage {
-    grid-column: 1;
-    grid-row: 2;
     min-height: min(70vw, 28rem);
   }
 
-  .buttons {
-    grid-column: 1;
-    grid-row: 3;
-    border-right: none;
+  #generate-panel {
+    border-left: none;
     border-top: 0.0625rem solid var(--line);
-    padding: 1rem 1.375rem 1.75rem;
+    padding: 1.25rem 1.375rem 1.75rem;
   }
 }
