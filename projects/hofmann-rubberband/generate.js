@@ -1,5 +1,5 @@
 /**
- * Hofmann Generate — sparse pin sampling + stride/turn-aware cycles (no p5).
+ * Hofmann Generate — blob growth, decimate, incision-aware cycles (no p5).
  * Uses HofmannRubberband for contour validation.
  */
 (function (root, factory) {
@@ -23,47 +23,72 @@
 })(typeof self !== "undefined" ? self : this, function (global) {
   "use strict";
 
-  const MAX_GEN_PINS = 24;
-  const GEN_PINS = {
-    less: { fill: [0.25, 0.4], pins: [6, 11] },
-    medium: { fill: [0.4, 0.58], pins: [10, 17] },
-    more: { fill: [0.65, 0.9], pins: [16, 24] },
-  };
+  const MAX_GEN_PINS = 32;
   const STRIDE_PRESETS = [1, 3, 5, 8];
   const MEANDER_PRESETS = [0, 3, 5, 10];
+  const INCISION_PRESETS = [0, 3, 5, 8];
 
-  /**
-   * Stride 1..10 → preferred step length + how hard we thin the cycle.
-   * High stride is the main visual lever: fewer pins, longer chords.
-   */
+  /** Pin amount slider bounds for a given grid size. */
+  function pinAmountRange(gridN) {
+    const n = Math.max(3, Math.round(Number(gridN) || 3));
+    const min = 3;
+    const max = Math.min(MAX_GEN_PINS, Math.max(8, Math.round(n * n * 0.75)));
+    return { min, max };
+  }
+
+  /** Preset chip values for the current pin range. */
+  function pinAmountPresets(gridN) {
+    const { min, max } = pinAmountRange(gridN);
+    if (max <= min) return [min];
+    const span = max - min;
+    const a = min;
+    const b = min + Math.round(span * 0.33);
+    const c = min + Math.round(span * 0.66);
+    const d = max;
+    const uniq = [];
+    for (const v of [a, b, c, d]) {
+      if (!uniq.includes(v)) uniq.push(v);
+    }
+    return uniq;
+  }
+
+  function defaultPinAmount(gridN) {
+    const { min, max } = pinAmountRange(gridN);
+    return Math.max(min, Math.min(max, Math.round(max * 0.55)));
+  }
+
   function resolveStride(level) {
     const t = Math.max(1, Math.min(10, Math.round(Number(level) || 1)));
-    const preferMid = 0.85 + t * 0.55; // ~1.4 .. 6.35
+    const preferMid = 0.85 + t * 0.55;
     const half = 0.45 + t * 0.1;
     return {
       level: t,
       prefer: [Math.max(1, preferMid - half), preferMid + half],
-      mean: [
-        Math.max(1, preferMid - half - 0.35),
-        preferMid + half + 1.1,
-      ],
+      mean: [Math.max(1, preferMid - half - 0.35), preferMid + half + 1.1],
       minSep: t >= 6 ? 2 : 1,
-      // 1 → keep ~100% of pin target; 10 → keep ~40%
       pinScale: Math.max(0.38, 1.06 - t * 0.068),
     };
   }
 
-  /**
-   * Meander 0..10 → straight runs vs turns.
-   * High meander caps collinear runs and rewards removing mid-edge pins.
-   */
   function resolveMeander(level) {
     const t = Math.max(0, Math.min(10, Math.round(Number(level) || 0)));
     return {
       level: t,
-      maxCollinear: Math.max(2, Math.round(8 - t * 0.6)), // 8 → 2
-      turnBias: 0.2 + t * 0.28, // 0.2 → 3.0
-      minTurnRate: Math.min(0.82, 0.08 + t * 0.07), // 0.08 → 0.78
+      maxCollinear: Math.max(2, Math.round(8 - t * 0.6)),
+      turnBias: 0.2 + t * 0.28,
+      minTurnRate: Math.min(0.82, 0.08 + t * 0.07),
+    };
+  }
+
+  function resolveIncision(level) {
+    const t = Math.max(0, Math.min(10, Math.round(Number(level) || 0)));
+    const u = t / 10;
+    return {
+      level: t,
+      maxSolidity: 0.92 - u * 0.4, // 0.92 → 0.52
+      bayGrowth: u * 0.85,
+      notchTries: t < 4 ? 0 : t < 7 ? 1 : 2,
+      filterSolidity: t >= 1,
     };
   }
 
@@ -125,6 +150,161 @@
     return (maxC - minC + 1) * (maxR - minR + 1);
   }
 
+  /** Shoelace area; accepts {c,r} or {x,y}. */
+  function polygonArea(pts) {
+    const n = pts.length;
+    if (n < 3) return 0;
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % n];
+      const ax = a.x != null ? a.x : a.c;
+      const ay = a.y != null ? a.y : a.r;
+      const bx = b.x != null ? b.x : b.c;
+      const by = b.y != null ? b.y : b.r;
+      sum += ax * by - bx * ay;
+    }
+    return Math.abs(sum) * 0.5;
+  }
+
+  function polygonPerimeter(pts) {
+    const n = pts.length;
+    if (n < 2) return 0;
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % n];
+      const ax = a.x != null ? a.x : a.c;
+      const ay = a.y != null ? a.y : a.r;
+      const bx = b.x != null ? b.x : b.c;
+      const by = b.y != null ? b.y : b.r;
+      sum += Math.hypot(bx - ax, by - ay);
+    }
+    return sum;
+  }
+
+  function cross2(o, a, b) {
+    const ox = o.x != null ? o.x : o.c;
+    const oy = o.y != null ? o.y : o.r;
+    const ax = a.x != null ? a.x : a.c;
+    const ay = a.y != null ? a.y : a.r;
+    const bx = b.x != null ? b.x : b.c;
+    const by = b.y != null ? b.y : b.r;
+    return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
+  }
+
+  /** Monotone-chain convex hull; returns hull vertices in order. */
+  function convexHull(pts) {
+    if (!pts || pts.length < 2) return (pts || []).map((p) => ({ ...p }));
+    const pts2 = pts.map((p) => ({
+      c: p.c != null ? p.c : p.x,
+      r: p.r != null ? p.r : p.y,
+    }));
+    pts2.sort((a, b) => (a.c === b.c ? a.r - b.r : a.c - b.c));
+    // Dedup
+    const uniq = [];
+    for (const p of pts2) {
+      const last = uniq[uniq.length - 1];
+      if (!last || last.c !== p.c || last.r !== p.r) uniq.push(p);
+    }
+    if (uniq.length <= 2) return uniq.map((p) => ({ c: p.c, r: p.r }));
+
+    const lower = [];
+    for (const p of uniq) {
+      while (
+        lower.length >= 2 &&
+        cross2(lower[lower.length - 2], lower[lower.length - 1], p) <= 0
+      ) {
+        lower.pop();
+      }
+      lower.push(p);
+    }
+    const upper = [];
+    for (let i = uniq.length - 1; i >= 0; i--) {
+      const p = uniq[i];
+      while (
+        upper.length >= 2 &&
+        cross2(upper[upper.length - 2], upper[upper.length - 1], p) <= 0
+      ) {
+        upper.pop();
+      }
+      upper.push(p);
+    }
+    lower.pop();
+    upper.pop();
+    return lower.concat(upper).map((p) => ({ c: p.c, r: p.r }));
+  }
+
+  /** area(poly) / area(hull); 1 = convex filled, lower = deeper bays. */
+  function solidity(pts) {
+    if (!pts || pts.length < 3) return 1;
+    const area = polygonArea(pts);
+    if (area < 1e-9) return 1;
+    const hull = convexHull(pts);
+    const hullArea = polygonArea(hull);
+    if (hullArea < 1e-9) return 1;
+    return Math.min(1, area / hullArea);
+  }
+
+  function roughness(pts) {
+    const area = polygonArea(pts);
+    if (area < 1e-9) return 0;
+    return polygonPerimeter(pts) / Math.sqrt(area);
+  }
+
+  /** True if closed pin polygon edges cross (excluding shared vertices). */
+  function pinCycleSelfIntersects(ordered) {
+    const n = ordered.length;
+    if (n < 4) return false;
+    function seg(i) {
+      const a = ordered[i];
+      const b = ordered[(i + 1) % n];
+      return {
+        a: { x: a.c, y: a.r },
+        b: { x: b.c, y: b.r },
+      };
+    }
+    function orient(p, q, r) {
+      const v = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+      if (Math.abs(v) < 1e-9) return 0;
+      return v > 0 ? 1 : 2;
+    }
+    function onSeg(p, q, r) {
+      return (
+        Math.min(p.x, r.x) - 1e-9 <= q.x &&
+        q.x <= Math.max(p.x, r.x) + 1e-9 &&
+        Math.min(p.y, r.y) - 1e-9 <= q.y &&
+        q.y <= Math.max(p.y, r.y) + 1e-9
+      );
+    }
+    function intersects(a, b, c, d) {
+      const o1 = orient(a, b, c);
+      const o2 = orient(a, b, d);
+      const o3 = orient(c, d, a);
+      const o4 = orient(c, d, b);
+      if (o1 !== o2 && o3 !== o4) return true;
+      if (o1 === 0 && onSeg(a, c, b)) return true;
+      if (o2 === 0 && onSeg(a, d, b)) return true;
+      if (o3 === 0 && onSeg(c, a, d)) return true;
+      if (o4 === 0 && onSeg(c, b, d)) return true;
+      return false;
+    }
+    for (let i = 0; i < n; i++) {
+      const s1 = seg(i);
+      for (let j = i + 1; j < n; j++) {
+        if (j === i || (j + 1) % n === i || (i + 1) % n === j) continue;
+        const s2 = seg(j);
+        if (intersects(s1.a, s1.b, s2.a, s2.b)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Cross product sign for turn at b walking a→b→c (grid coords). */
+  function turnCross(a, b, c) {
+    return (b.c - a.c) * (c.r - b.r) - (b.r - a.r) * (c.c - b.c);
+  }
+
   function pickSpreadSeed(gridN) {
     if (Math.random() < 0.65) {
       const edge = Math.floor(Math.random() * 4);
@@ -141,13 +321,17 @@
     };
   }
 
-  /** Grow a 4-connected blob preferring bbox expansion (spread). */
-  function growConnectedBlob(targetSize, gridN) {
+  /**
+   * Grow a 4-connected blob.
+   * mode "spread" = bbox expansion; "bay" = prefer low neighbor-count (perimeter).
+   */
+  function growConnectedBlob(targetSize, gridN, mode) {
     const total = gridN * gridN;
     const n = Math.max(1, Math.min(targetSize, total));
     const seed = pickSpreadSeed(gridN);
     const chosen = new Map();
     chosen.set(keyOf(seed.c, seed.r), { c: seed.c, r: seed.r });
+    const bay = mode === "bay";
 
     while (chosen.size < n) {
       const frontier = [];
@@ -158,12 +342,24 @@
       }
       if (!frontier.length) break;
 
-      const baseArea = bboxAreaOf(chosen.values());
-      const scored = frontier.map((cell) => {
-        const trial = Array.from(chosen.values());
-        trial.push(cell);
-        return { cell, gain: bboxAreaOf(trial) - baseArea };
-      });
+      let scored;
+      if (bay) {
+        scored = frontier.map((cell) => {
+          let touch = 0;
+          for (const nb of neighbors4(cell.c, cell.r, gridN)) {
+            if (chosen.has(keyOf(nb.c, nb.r))) touch++;
+          }
+          // Prefer cells that touch fewer blob neighbors → skinnier / bayed growth
+          return { cell, gain: -touch + Math.random() * 0.2 };
+        });
+      } else {
+        const baseArea = bboxAreaOf(chosen.values());
+        scored = frontier.map((cell) => {
+          const trial = Array.from(chosen.values());
+          trial.push(cell);
+          return { cell, gain: bboxAreaOf(trial) - baseArea };
+        });
+      }
       scored.sort((a, b) => b.gain - a.gain);
       const top = scored.slice(0, Math.min(4, scored.length));
       const next = pickRandom(top).cell;
@@ -195,7 +391,6 @@
     return edge.length ? edge : cells.map((p) => ({ c: p.c, r: p.r }));
   }
 
-  /** Mean Manhattan step on a closed pin cycle. */
   function meanStep(ordered) {
     const n = ordered.length;
     if (n < 2) return 0;
@@ -206,7 +401,6 @@
     return sum / n;
   }
 
-  /** Fraction of consecutive steps that change direction. */
   function turnRate(ordered) {
     const n = ordered.length;
     if (n < 3) return 0;
@@ -224,11 +418,6 @@
     return turns / n;
   }
 
-  /**
-   * Greedy sample of `count` pins with Manhattan min separation.
-   * `preferred` is tried first (e.g. blob boundary); `fallback` fills gaps.
-   * Relaxes separation if the pool is too small.
-   */
   function sampleSparsePins(preferred, count, minSep, fallback) {
     const primary = preferred || [];
     const secondary = fallback || [];
@@ -246,7 +435,6 @@
     if (!n) return [];
     if (n >= merged.length) return merged.map((p) => ({ c: p.c, r: p.r }));
 
-    // Keep boundary-first order: shuffle within preferred and within fallback separately
     const pref = shuffleInPlace(
       primary.map((p) => ({ c: p.c, r: p.r })).filter((p, i, arr) => {
         const k = keyOf(p.c, p.r);
@@ -326,10 +514,6 @@
     return order;
   }
 
-  /**
-   * Thin a simple boundary cycle down to targetCount, preferring removals
-   * that leave chords in the stride band (avoids self-intersecting TSP orders).
-   */
   function decimateCycle(ordered, targetCount, stride, meander) {
     if (!ordered.length) return [];
     const target = Math.max(3, Math.min(targetCount, ordered.length));
@@ -378,6 +562,51 @@
     return cycle;
   }
 
+  /**
+   * Try to splice an interior blob cell into the cycle to create a reflex notch.
+   */
+  function tryInjectNotch(ordered, blob, incision) {
+    if (!ordered || ordered.length < 3 || !incision.notchTries) {
+      return ordered.map((p) => ({ c: p.c, r: p.r }));
+    }
+    let cycle = ordered.map((p) => ({ c: p.c, r: p.r }));
+    const used = new Set(cycle.map((p) => keyOf(p.c, p.r)));
+    const interior = [];
+    for (const p of blob) {
+      const k = keyOf(p.c, p.r);
+      if (!used.has(k)) interior.push({ c: p.c, r: p.r });
+    }
+    if (!interior.length) return cycle;
+
+    const baseSolidity = solidity(cycle);
+    let tries = incision.notchTries;
+    while (tries-- > 0 && interior.length) {
+      const cand = pickRandom(interior);
+      const edgeIdx = Math.floor(Math.random() * cycle.length);
+      const a = cycle[edgeIdx];
+      const b = cycle[(edgeIdx + 1) % cycle.length];
+      if (manhattan(a, cand) > 3 && manhattan(b, cand) > 3) continue;
+
+      const trial = cycle.slice();
+      trial.splice(edgeIdx + 1, 0, { c: cand.c, r: cand.r });
+      if (pinCycleSelfIntersects(trial)) continue;
+
+      const cross = turnCross(a, cand, b);
+      const sol = solidity(trial);
+      if (sol >= baseSolidity - 0.02 && Math.abs(cross) < 1e-9) continue;
+      if (sol > baseSolidity && Math.random() < 0.7) continue;
+
+      cycle = trial;
+      used.add(keyOf(cand.c, cand.r));
+      const idx = interior.findIndex(
+        (p) => p.c === cand.c && p.r === cand.r
+      );
+      if (idx >= 0) interior.splice(idx, 1);
+      break;
+    }
+    return cycle;
+  }
+
   function centersForPins(list, cellCenter) {
     return list.map((p) => cellCenter(p.c, p.r));
   }
@@ -408,9 +637,10 @@
   function tryGenerate(opts) {
     const {
       gridN,
-      genPins = "more",
+      genPinCount,
       genStride = 3,
       genMeander = 5,
+      genIncision = 4,
       cellCenter,
       cellR,
       arcSteps = 18,
@@ -422,27 +652,28 @@
     if (!G || gridN < 1) return null;
 
     const total = gridN * gridN;
-    const band = GEN_PINS[genPins] || GEN_PINS.more;
+    const range = pinAmountRange(gridN);
     const stride = resolveStride(genStride);
     const meander = resolveMeander(genMeander);
-    const [fillLo, fillHi] = band.fill;
-    const [pinLo, pinHi] = band.pins;
-    let maxPins = Math.min(MAX_GEN_PINS, pinHi);
-    // High stride → fewer pins (stronger visual separation / longer steps)
-    maxPins = Math.max(
-      3,
-      Math.round(maxPins * stride.pinScale)
+    const incision = resolveIncision(genIncision);
+
+    const requested = Math.round(
+      Number(genPinCount != null ? genPinCount : defaultPinAmount(gridN))
     );
-    const minPins = Math.max(
-      3,
-      Math.min(Math.round(pinLo * stride.pinScale), maxPins)
+    let pinTarget = Math.max(range.min, Math.min(range.max, requested));
+    // Stride still thins slightly so high stride stays visually distinct
+    pinTarget = Math.max(
+      range.min,
+      Math.min(range.max, Math.round(pinTarget * stride.pinScale))
     );
-    const usePinBand = gridN >= 7;
+    const acceptLo = Math.max(3, pinTarget - 2);
+    const acceptHi = Math.min(range.max, pinTarget + 2);
+
     const deadline = performance.now() + deadlineMs;
     let accepted = null;
     let attempt = 0;
 
-    function cheapOk(ordered, lo, hi, strideBand, meanderBand) {
+    function cheapOk(ordered, lo, hi, strideBand, meanderBand, incisionBand) {
       if (ordered.length < lo || ordered.length > hi) return false;
       if (G.maxCollinearRun(ordered) > meanderBand.maxCollinear) return false;
       const mean = meanStep(ordered);
@@ -452,18 +683,22 @@
         return false;
       }
       if (turnRate(ordered) < meanderBand.minTurnRate) return false;
+      if (incisionBand.filterSolidity) {
+        if (solidity(ordered) > incisionBand.maxSolidity) return false;
+      }
       return true;
     }
 
-    function acceptCandidate(ordered, lo, hi, strideBand, meanderBand) {
+    function acceptCandidate(ordered, lo, hi, strideBand, meanderBand, incisionBand) {
       return (
-        cheapOk(ordered, lo, hi, strideBand, meanderBand) &&
+        cheapOk(ordered, lo, hi, strideBand, meanderBand, incisionBand) &&
         contourOk(ordered, cellCenter, cellR, arcSteps)
       );
     }
 
-    function makeCycle(growTarget, pinTarget) {
-      const blob = growConnectedBlob(growTarget, gridN);
+    function makeCycle(growTarget) {
+      const mode = Math.random() < incision.bayGrowth ? "bay" : "spread";
+      const blob = growConnectedBlob(growTarget, gridN, mode);
       const boundary = blobBoundary(blob, gridN);
       if (boundary.length < 3 && blob.length < 3) return null;
       let base =
@@ -474,57 +709,30 @@
         base = orderVisitCycle(blob, gridN);
       }
       if (base.length < 3) return null;
-      return decimateCycle(base, pinTarget, stride, meander);
-    }
-
-    function pickPinTarget(lo, hi) {
-      if (lo >= hi) return lo;
-      return lo + Math.floor(Math.random() * (hi - lo + 1));
+      let cycle = decimateCycle(base, pinTarget, stride, meander);
+      cycle = tryInjectNotch(cycle, blob, incision);
+      return cycle;
     }
 
     while (performance.now() < deadline && attempt < softCap && !accepted) {
-      let growTarget;
-      let acceptLo = minPins;
-      let acceptHi = maxPins;
-      let pinTarget;
-
-      if (!usePinBand) {
-        const fill = fillLo + Math.random() * Math.max(0, fillHi - fillLo);
-        growTarget = Math.max(3, Math.round(total * fill));
-        acceptLo = 3;
-        acceptHi = maxPins;
-        const raw = pickPinTarget(
-          Math.min(6, maxPins),
-          Math.min(Math.max(acceptLo, Math.round(growTarget * 0.55)), maxPins)
-        );
-        pinTarget = Math.max(
-          3,
-          Math.round(raw * stride.pinScale)
-        );
-        pinTarget = Math.min(pinTarget, maxPins);
-      } else {
-        const lo = minPins;
-        const hi = maxPins;
-        pinTarget = pickPinTarget(lo, hi);
-        growTarget = Math.min(
-          total,
-          Math.max(pinTarget + 2, Math.round(pinTarget * (1.4 + stride.level * 0.08)))
-        );
-        acceptLo = lo;
-        acceptHi = hi;
-      }
-
-      const ordered = makeCycle(growTarget, pinTarget);
+      const growTarget = Math.min(
+        total,
+        Math.max(
+          pinTarget + 2,
+          Math.round(pinTarget * (1.4 + stride.level * 0.08 + incision.bayGrowth * 0.4))
+        )
+      );
+      const ordered = makeCycle(growTarget);
       if (
         ordered &&
-        acceptCandidate(ordered, acceptLo, acceptHi, stride, meander)
+        acceptCandidate(ordered, acceptLo, acceptHi, stride, meander, incision)
       ) {
         accepted = ordered;
       }
       attempt++;
     }
 
-    // Emergency: relax stride/meander but still aim for the pin band
+    // Emergency: relax filters; solidity last
     if (!accepted) {
       const softStride = {
         ...stride,
@@ -538,17 +746,19 @@
         turnBias: Math.min(0.5, meander.turnBias),
         minTurnRate: 0.1,
       };
+      const softIncision = {
+        ...incision,
+        filterSolidity: false,
+        notchTries: Math.min(1, incision.notchTries),
+      };
       let emergency = 0;
       while (performance.now() < deadline && !accepted && emergency < 16) {
-        const pinTarget = pickPinTarget(
-          Math.max(3, Math.min(minPins, maxPins)),
-          maxPins
-        );
         const growTarget = Math.min(
           total,
           Math.max(pinTarget + 2, Math.round(pinTarget * 1.7))
         );
-        const blob = growConnectedBlob(growTarget, gridN);
+        const mode = Math.random() < softIncision.bayGrowth ? "bay" : "spread";
+        const blob = growConnectedBlob(growTarget, gridN, mode);
         const boundary = blobBoundary(blob, gridN);
         let base =
           boundary.length >= 3
@@ -561,11 +771,12 @@
           emergency++;
           continue;
         }
-        const ordered = decimateCycle(base, pinTarget, softStride, softMeander);
+        let ordered = decimateCycle(base, pinTarget, softStride, softMeander);
+        ordered = tryInjectNotch(ordered, blob, softIncision);
         if (
           ordered &&
-          ordered.length >= Math.min(minPins, 3) &&
-          ordered.length <= maxPins &&
+          ordered.length >= 3 &&
+          ordered.length <= range.max &&
           G.maxCollinearRun(ordered) <= softMeander.maxCollinear &&
           contourOk(ordered, cellCenter, cellR, arcSteps)
         ) {
@@ -580,11 +791,20 @@
 
   return {
     MAX_GEN_PINS,
-    GEN_PINS,
     STRIDE_PRESETS,
     MEANDER_PRESETS,
+    INCISION_PRESETS,
+    pinAmountRange,
+    pinAmountPresets,
+    defaultPinAmount,
     resolveStride,
     resolveMeander,
+    resolveIncision,
+    polygonArea,
+    polygonPerimeter,
+    convexHull,
+    solidity,
+    roughness,
     manhattan,
     meanStep,
     turnRate,

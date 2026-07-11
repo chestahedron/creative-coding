@@ -132,11 +132,16 @@
         <hr class="sep" />
 
         <div class="field">
-          <div class="field-head">Pin amount</div>
-          <div class="presets" role="group" aria-label="Pin amount presets">
-            <button type="button" data-pins="less">Less</button>
-            <button type="button" data-pins="medium">Medium</button>
-            <button type="button" data-pins="more" class="active">More</button>
+          <div class="field-head" id="pinsLabel">
+            <span>Pin amount</span>
+            <em id="pinsVal">7</em>
+          </div>
+          <input id="pins" type="range" min="3" max="12" step="1" value="7" aria-labelledby="pinsLabel" />
+          <div class="presets" id="pinsPresets" role="group" aria-label="Pin amount presets">
+            <button type="button" data-pins="3">3</button>
+            <button type="button" data-pins="6">6</button>
+            <button type="button" data-pins="9">9</button>
+            <button type="button" data-pins="12">12</button>
           </div>
         </div>
 
@@ -167,9 +172,49 @@
             <button type="button" data-meander="10">10</button>
           </div>
         </div>
+
+        <div class="field">
+          <div class="field-head" id="incisionLabel">
+            <span>Incision</span>
+            <em id="incisionVal">4</em>
+          </div>
+          <input id="incision" type="range" min="0" max="10" step="1" value="4" aria-labelledby="incisionLabel" />
+          <div class="presets" role="group" aria-label="Incision presets">
+            <button type="button" data-incision="0">0</button>
+            <button type="button" data-incision="3">3</button>
+            <button type="button" data-incision="5">5</button>
+            <button type="button" data-incision="8">8</button>
+          </div>
+        </div>
+
+        <hr class="sep" />
+
+        <div class="field">
+          <div class="field-head" id="batchLabel">
+            <span>Batch</span>
+            <em id="batchVal">8</em>
+          </div>
+          <input
+            id="batchCount"
+            type="number"
+            min="1"
+            max="32"
+            step="1"
+            value="8"
+            aria-labelledby="batchLabel"
+          />
+        </div>
+
+        <button id="exportBatch" type="button">
+          <span class="btn-main">
+            <span class="icon" data-icon="download" aria-hidden="true"></span>
+            Export batch
+          </span>
+        </button>
       </aside>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="geometry.js"></script>
     <script src="generate.js"></script>
     <script src="sketch.js"></script>

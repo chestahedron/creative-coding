@@ -122,6 +122,28 @@ body {
   margin-bottom: 0.7rem;
 }
 
+.field > input[type="number"] {
+  width: 100%;
+  font: inherit;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+  background: transparent;
+  border: 0.0625rem solid var(--line);
+  border-radius: 0.125rem;
+  padding: 0.45rem 0.55rem;
+  outline: none;
+}
+
+.field > input[type="number"]:focus {
+  border-color: var(--ink);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .field em {
   font-style: normal;
   color: var(--muted);

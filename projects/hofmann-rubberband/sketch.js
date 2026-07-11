@@ -43,11 +43,13 @@ let redoStack = [];
 const UNDO_MAX = 80;
 const DOT_PRESETS = [50, 66, 75, 90];
 const GRID_PRESETS = [4, 5, 6, 8];
-let genPins = "more";
+let genPinCount = 7;
 let genStride = 3;
 let genMeander = 5;
+let genIncision = 4;
 const STRIDE_PRESETS = [1, 3, 5, 8];
 const MEANDER_PRESETS = [0, 3, 5, 10];
+const INCISION_PRESETS = [0, 3, 5, 8];
 
 let spacing = 40;
 let cellR = 20;
@@ -221,17 +223,22 @@ function buildContour(force) {
   }
 }
 
-function generatePins() {
-  layoutGrid();
-  const accepted = genApi().tryGenerate({
+function generateOpts() {
+  return {
     gridN,
-    genPins,
+    genPinCount,
     genStride,
     genMeander,
+    genIncision,
     cellCenter,
     cellR,
     arcSteps: ARC_STEPS,
-  });
+  };
+}
+
+function generatePins() {
+  layoutGrid();
+  const accepted = genApi().tryGenerate(generateOpts());
 
   if (!accepted) {
     const el = document.getElementById("status");
@@ -504,41 +511,125 @@ function pathToSvgD(path) {
   return d;
 }
 
-function buildSVG() {
+function buildSVGForPins(pinList) {
   const w = width;
   const h = height;
   const parts = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
   ];
 
-  const result = buildContour(false);
-  const path = result && result.path;
-  const segments = result && result.segments;
-
-  if (segments && segments.length) {
-    const d = geom().segmentsToSvgD(segments);
-    if (d) parts.push(`<path d="${d}" fill="${INK_CSS}" stroke="none"/>`);
-  } else if (path && path.length >= 3) {
-    parts.push(
-      `<path d="${pathToSvgD(path)}" fill="${INK_CSS}" stroke="none"/>`
-    );
+  if (pinList && pinList.length) {
+    try {
+      const centers = pinList.map((p) => cellCenter(p.c, p.r));
+      const result = geom().buildRubberBand(centers, cellR, ARC_STEPS);
+      if (result && result.ok && result.segments && result.segments.length) {
+        const d = geom().segmentsToSvgD(result.segments);
+        if (d) parts.push(`<path d="${d}" fill="${INK_CSS}" stroke="none"/>`);
+      } else if (result && result.path && result.path.length >= 3) {
+        parts.push(
+          `<path d="${pathToSvgD(result.path)}" fill="${INK_CSS}" stroke="none"/>`
+        );
+      }
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   parts.push(`</svg>`);
   return parts.join("\n");
 }
 
-function saveSVG() {
-  const svg = buildSVG();
-  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+function buildSVG() {
+  return buildSVGForPins(pins);
+}
+
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `hofmann-rubberband-${Date.now()}.svg`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function saveSVG() {
+  const svg = buildSVG();
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  downloadBlob(blob, `hofmann-rubberband-${Date.now()}.svg`);
+}
+
+function setStatus(msg) {
+  const el = document.getElementById("status");
+  if (el) {
+    el.textContent = msg;
+    lastStatus = msg;
+  }
+}
+
+function setBatchCount(n) {
+  const v = Math.max(1, Math.min(32, Math.round(Number(n) || 1)));
+  const input = document.getElementById("batchCount");
+  const batchVal = document.getElementById("batchVal");
+  if (input) input.value = String(v);
+  if (batchVal) batchVal.textContent = String(v);
+  return v;
+}
+
+async function exportBatch() {
+  if (typeof JSZip === "undefined") {
+    setStatus(`Pins ${pins.length} · JSZip missing`);
+    return;
+  }
+
+  const btn = document.getElementById("exportBatch");
+  const n = setBatchCount(document.getElementById("batchCount").value);
+  layoutGrid();
+
+  if (btn) btn.disabled = true;
+  const zip = new JSZip();
+  let last = null;
+  let ok = 0;
+
+  try {
+    for (let i = 0; i < n; i++) {
+      setStatus(`Batch ${i + 1}/${n}`);
+      let accepted = genApi().tryGenerate(generateOpts());
+      if (!accepted) {
+        accepted = genApi().tryGenerate(generateOpts());
+      }
+      if (accepted) {
+        ok++;
+        last = accepted;
+        const svg = buildSVGForPins(accepted);
+        const name = `shape-${String(ok).padStart(2, "0")}.svg`;
+        zip.file(name, svg);
+      }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    if (!ok) {
+      setStatus(`Pins ${pins.length} · batch failed`);
+      return;
+    }
+
+    if (last) {
+      pushUndo();
+      pins = clonePins(last);
+      selected = -1;
+      invalidateContour();
+    }
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    downloadBlob(blob, `hofmann-batch-${Date.now()}.zip`);
+    setStatus(`Pins ${pins.length} · batch ${ok}/${n}`);
+  } catch (err) {
+    console.error(err);
+    setStatus(`Pins ${pins.length} · batch error`);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function syncPreset(attr, value) {
@@ -558,13 +649,54 @@ function setGridSize(size) {
   if (gridVal) gridVal.textContent = String(n);
   makeGrid(n);
   syncPreset("grid", GRID_PRESETS.includes(n) ? n : -1);
+  syncPinAmountRange(n);
   layoutGrid();
 }
 
-function setGenPins(name) {
-  if (!genApi().GEN_PINS[name]) return;
-  genPins = name;
-  syncPreset("pins", name);
+function syncPinAmountRange(n) {
+  const api = genApi();
+  const { min, max } = api.pinAmountRange(n);
+  const presets = api.pinAmountPresets(n);
+  const pins = document.getElementById("pins");
+  const pinsVal = document.getElementById("pinsVal");
+  const wrap = document.getElementById("pinsPresets");
+  if (pins) {
+    pins.min = String(min);
+    pins.max = String(max);
+  }
+  if (wrap) {
+    wrap.innerHTML = "";
+    for (const v of presets) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.dataset.pins = String(v);
+      btn.textContent = String(v);
+      btn.addEventListener("click", () => setGenPinCount(v));
+      wrap.appendChild(btn);
+    }
+  }
+  let next = genPinCount;
+  if (next < min || next > max) {
+    next = api.defaultPinAmount(n);
+  }
+  setGenPinCount(next);
+}
+
+function setGenPinCount(count) {
+  const api = genApi();
+  const { min, max } = api.pinAmountRange(gridN);
+  const n = Math.max(min, Math.min(max, Math.round(count)));
+  const pins = document.getElementById("pins");
+  const pinsVal = document.getElementById("pinsVal");
+  if (pins) {
+    pins.min = String(min);
+    pins.max = String(max);
+    pins.value = String(n);
+  }
+  if (pinsVal) pinsVal.textContent = String(n);
+  genPinCount = n;
+  const presets = api.pinAmountPresets(gridN);
+  syncPreset("pins", presets.includes(n) ? n : -1);
 }
 
 function setGenStride(level) {
@@ -585,6 +717,16 @@ function setGenMeander(level) {
   if (meanderVal) meanderVal.textContent = String(n);
   genMeander = n;
   syncPreset("meander", MEANDER_PRESETS.includes(n) ? n : -1);
+}
+
+function setGenIncision(level) {
+  const n = Math.max(0, Math.min(10, Math.round(level)));
+  const incision = document.getElementById("incision");
+  const incisionVal = document.getElementById("incisionVal");
+  if (incision) incision.value = String(n);
+  if (incisionVal) incisionVal.textContent = String(n);
+  genIncision = n;
+  syncPreset("incision", INCISION_PRESETS.includes(n) ? n : -1);
 }
 
 function setDotPercent(pct) {
@@ -621,10 +763,11 @@ function wireUi() {
   });
   syncPreset("dot", Math.round(dotScale * 100));
 
-  document.querySelectorAll(".presets [data-pins]").forEach((btn) => {
-    btn.addEventListener("click", () => setGenPins(btn.dataset.pins));
+  const pins = document.getElementById("pins");
+  pins.addEventListener("input", () => {
+    setGenPinCount(Number(pins.value));
   });
-  syncPreset("pins", genPins);
+  syncPinAmountRange(gridN);
 
   const stride = document.getElementById("stride");
   stride.addEventListener("input", () => {
@@ -646,6 +789,26 @@ function wireUi() {
   });
   setGenMeander(genMeander);
 
+  const incision = document.getElementById("incision");
+  incision.addEventListener("input", () => {
+    setGenIncision(Number(incision.value));
+  });
+  document.querySelectorAll(".presets [data-incision]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      setGenIncision(Number(btn.dataset.incision))
+    );
+  });
+  setGenIncision(genIncision);
+
+  const batchCount = document.getElementById("batchCount");
+  batchCount.addEventListener("input", () => {
+    setBatchCount(batchCount.value);
+  });
+  batchCount.addEventListener("change", () => {
+    setBatchCount(batchCount.value);
+  });
+  setBatchCount(batchCount.value);
+
   document.getElementById("showGrid").addEventListener("change", (e) => {
     showGrid = e.target.checked;
   });
@@ -656,6 +819,9 @@ function wireUi() {
   document.getElementById("generate").addEventListener("click", generatePins);
   document.getElementById("clear").addEventListener("click", clearPins);
   document.getElementById("saveSvg").addEventListener("click", saveSVG);
+  document.getElementById("exportBatch").addEventListener("click", () => {
+    exportBatch();
+  });
 }
 
 function windowResized() {

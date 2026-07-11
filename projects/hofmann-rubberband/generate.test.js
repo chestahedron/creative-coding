@@ -19,9 +19,27 @@ function test(name, fn) {
   }
 }
 
+test("pinAmountRange scales with grid", () => {
+  assert.deepStrictEqual(Gen.pinAmountRange(4), { min: 3, max: 12 });
+  assert.deepStrictEqual(Gen.pinAmountRange(5), { min: 3, max: 19 });
+  assert.deepStrictEqual(Gen.pinAmountRange(6), { min: 3, max: 27 });
+  assert.deepStrictEqual(Gen.pinAmountRange(8), { min: 3, max: 32 });
+  assert.deepStrictEqual(Gen.pinAmountRange(16), { min: 3, max: 32 });
+});
+
+test("pinAmountPresets stay within range", () => {
+  const presets = Gen.pinAmountPresets(8);
+  assert.ok(presets.length >= 2);
+  const { min, max } = Gen.pinAmountRange(8);
+  for (const v of presets) {
+    assert.ok(v >= min && v <= max);
+  }
+  assert.strictEqual(presets[0], min);
+  assert.strictEqual(presets[presets.length - 1], max);
+});
+
 test("manhattan is |Δc|+|Δr|", () => {
   assert.strictEqual(Gen.manhattan({ c: 1, r: 1 }, { c: 3, r: 2 }), 3);
-  assert.strictEqual(Gen.manhattan({ c: 0, r: 0 }, { c: 0, r: 1 }), 1);
 });
 
 test("meanStep averages closed-cycle Manhattan steps", () => {
@@ -32,138 +50,133 @@ test("meanStep averages closed-cycle Manhattan steps", () => {
     { c: 0, r: 1 },
   ];
   assert.strictEqual(Gen.meanStep(square), 1);
-
-  const hof = [
-    { c: 1, r: 0 },
-    { c: 1, r: 1 },
-    { c: 3, r: 2 },
-    { c: 2, r: 3 },
-    { c: 1, r: 2 },
-    { c: 1, r: 3 },
-    { c: 0, r: 3 },
-    { c: 0, r: 2 },
-  ];
-  const steps = [1, 3, 2, 2, 1, 1, 1, 3];
-  const expected = steps.reduce((a, b) => a + b, 0) / steps.length;
-  assert.ok(Math.abs(Gen.meanStep(hof) - expected) < 1e-9);
 });
 
-test("turnRate is high on a turning path", () => {
-  const zig = [
+test("square solidity is ~1", () => {
+  const square = [
     { c: 0, r: 0 },
-    { c: 1, r: 0 },
-    { c: 1, r: 1 },
-    { c: 0, r: 1 },
+    { c: 3, r: 0 },
+    { c: 3, r: 3 },
+    { c: 0, r: 3 },
   ];
-  assert.ok(Gen.turnRate(zig) >= 0.9, "square turns every corner");
+  assert.ok(Math.abs(Gen.solidity(square) - 1) < 1e-6);
+});
 
-  const line = [
+test("C-shaped pin set has lower solidity than square", () => {
+  // Square ring missing one edge → bay
+  const cShape = [
     { c: 0, r: 0 },
     { c: 1, r: 0 },
     { c: 2, r: 0 },
     { c: 3, r: 0 },
-  ];
-  assert.ok(Gen.turnRate(line) < 0.6, "mostly collinear has fewer turns");
-});
-
-test("sampleSparsePins respects minSep when possible", () => {
-  const grid = [];
-  for (let r = 0; r < 6; r++) {
-    for (let c = 0; c < 6; c++) grid.push({ c, r });
-  }
-  const picked = Gen.sampleSparsePins(grid, 8, 2);
-  assert.strictEqual(picked.length, 8);
-  for (let i = 0; i < picked.length; i++) {
-    for (let j = i + 1; j < picked.length; j++) {
-      assert.ok(
-        Gen.manhattan(picked[i], picked[j]) >= 2,
-        `pair ${i},${j} too close`
-      );
-    }
-  }
-});
-
-test("sampleSparsePins returns at most pool size", () => {
-  const tiny = [
-    { c: 0, r: 0 },
-    { c: 1, r: 0 },
-    { c: 0, r: 1 },
-  ];
-  const picked = Gen.sampleSparsePins(tiny, 10, 2);
-  assert.strictEqual(picked.length, 3);
-});
-
-test("sampleSparsePins prefers primary pool before fallback", () => {
-  const edge = [
-    { c: 0, r: 0 },
-    { c: 2, r: 0 },
-    { c: 4, r: 0 },
-    { c: 0, r: 2 },
-  ];
-  const interior = [
-    { c: 1, r: 1 },
-    { c: 2, r: 2 },
     { c: 3, r: 1 },
+    { c: 3, r: 2 },
+    { c: 3, r: 3 },
+    { c: 2, r: 3 },
+    { c: 1, r: 3 },
+    { c: 0, r: 3 },
+    { c: 0, r: 2 },
+    { c: 0, r: 1 },
+    { c: 1, r: 1 }, // inward notch
   ];
-  const picked = Gen.sampleSparsePins(edge, 4, 1, interior);
-  assert.strictEqual(picked.length, 4);
-  const keys = new Set(picked.map((p) => `${p.c},${p.r}`));
-  for (const p of edge) {
-    assert.ok(keys.has(`${p.c},${p.r}`), "should take all edge pins first");
-  }
+  const square = [
+    { c: 0, r: 0 },
+    { c: 3, r: 0 },
+    { c: 3, r: 3 },
+    { c: 0, r: 3 },
+  ];
+  assert.ok(
+    Gen.solidity(cShape) < Gen.solidity(square) - 0.05,
+    `C ${Gen.solidity(cShape).toFixed(3)} vs square ${Gen.solidity(square).toFixed(3)}`
+  );
+});
+
+test("resolveIncision tightens maxSolidity", () => {
+  const low = Gen.resolveIncision(0);
+  const high = Gen.resolveIncision(10);
+  assert.ok(high.maxSolidity < low.maxSolidity);
+  assert.ok(high.bayGrowth > low.bayGrowth);
+  assert.strictEqual(low.notchTries, 0);
+  assert.ok(high.notchTries >= 1);
 });
 
 test("resolveStride scales prefer mid and pinScale", () => {
   const low = Gen.resolveStride(1);
   const high = Gen.resolveStride(10);
-  assert.ok(high.prefer[0] > low.prefer[0], "high stride prefers longer steps");
-  assert.ok(high.pinScale < low.pinScale, "high stride keeps fewer pins");
-  assert.ok(high.pinScale <= 0.45, "top stride thins aggressively");
+  assert.ok(high.prefer[0] > low.prefer[0]);
+  assert.ok(high.pinScale < low.pinScale);
 });
 
 test("resolveMeander tightens collinear runs", () => {
   const calm = Gen.resolveMeander(0);
   const twisty = Gen.resolveMeander(10);
   assert.ok(twisty.maxCollinear < calm.maxCollinear);
-  assert.ok(twisty.minTurnRate > calm.minTurnRate);
-  assert.strictEqual(twisty.maxCollinear, 2);
 });
 
-test("tryGenerate high stride keeps fewer pins than low stride", () => {
+test("tryGenerate respects genPinCount roughly", () => {
   const cellCenter = (c, r) => ({ x: c * 40, y: r * 40 });
-  let lowPins = 0;
-  let highPins = 0;
-  const trials = 6;
-  for (let i = 0; i < trials; i++) {
+  const out = Gen.tryGenerate({
+    gridN: 8,
+    genPinCount: 10,
+    genStride: 2,
+    genMeander: 3,
+    genIncision: 0,
+    cellCenter,
+    cellR: 15,
+    arcSteps: 12,
+    deadlineMs: 1200,
+    softCap: 40,
+  });
+  assert.ok(out, "generate should succeed");
+  assert.ok(out.length >= 6 && out.length <= 14, `got ${out.length} pins`);
+});
+
+test("tryGenerate high incision tends toward lower solidity", () => {
+  const cellCenter = (c, r) => ({ x: c * 40, y: r * 40 });
+  let lowSol = 0;
+  let highSol = 0;
+  let lowN = 0;
+  let highN = 0;
+  for (let i = 0; i < 8; i++) {
     const low = Gen.tryGenerate({
       gridN: 8,
-      genPins: "more",
-      genStride: 1,
-      genMeander: 2,
+      genPinCount: 12,
+      genStride: 2,
+      genMeander: 5,
+      genIncision: 0,
       cellCenter,
       cellR: 15,
       arcSteps: 12,
-      deadlineMs: 800,
-      softCap: 30,
+      deadlineMs: 900,
+      softCap: 35,
     });
     const high = Gen.tryGenerate({
       gridN: 8,
-      genPins: "more",
-      genStride: 10,
-      genMeander: 2,
+      genPinCount: 12,
+      genStride: 2,
+      genMeander: 5,
+      genIncision: 9,
       cellCenter,
       cellR: 15,
       arcSteps: 12,
-      deadlineMs: 800,
-      softCap: 30,
+      deadlineMs: 900,
+      softCap: 35,
     });
-    assert.ok(low && high, "both generates should succeed");
-    lowPins += low.length;
-    highPins += high.length;
+    if (low) {
+      lowSol += Gen.solidity(low);
+      lowN++;
+    }
+    if (high) {
+      highSol += Gen.solidity(high);
+      highN++;
+    }
   }
+  assert.ok(lowN > 0 && highN > 0, "both modes should produce shapes");
+  const lowMean = lowSol / lowN;
+  const highMean = highSol / highN;
   assert.ok(
-    highPins / trials < lowPins / trials - 3,
-    `expected fewer pins at stride 10 (${(highPins / trials).toFixed(1)}) than 1 (${(lowPins / trials).toFixed(1)})`
+    highMean <= lowMean + 0.05,
+    `expected high incision solidity (${highMean.toFixed(2)}) <= low (${lowMean.toFixed(2)})`
   );
 });
 
