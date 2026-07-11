@@ -22,8 +22,6 @@
   --font: "Kanso Code", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --icon-edit: url("../../assets/icons/__ALL/edit-line.svg");
   --icon-eye: url("../../assets/icons/__ALL/eye-line.svg");
-  --icon-pin: url("../../assets/icons/__ALL/map-pin-line.svg");
-  --icon-eraser: url("../../assets/icons/__ALL/eraser-line.svg");
   --icon-clear: url("../../assets/icons/__ALL/delete-bin-line.svg");
   --icon-generate: url("../../assets/icons/__ALL/refresh-line.svg");
   --icon-download: url("../../assets/icons/__ALL/download-line.svg");
@@ -283,16 +281,6 @@ button {
   mask-image: var(--icon-eye);
 }
 
-.icon[data-icon="pin"] {
-  -webkit-mask-image: var(--icon-pin);
-  mask-image: var(--icon-pin);
-}
-
-.icon[data-icon="eraser"] {
-  -webkit-mask-image: var(--icon-eraser);
-  mask-image: var(--icon-eraser);
-}
-
 .icon[data-icon="clear"] {
   -webkit-mask-image: var(--icon-clear);
   mask-image: var(--icon-clear);
@@ -337,14 +325,12 @@ button:hover {
   background: color-mix(in srgb, var(--line) 50%, transparent);
 }
 
-button.tool.active,
 button.mode.active,
 button.primary {
   background: var(--ink);
   color: var(--paper);
 }
 
-button.tool.active:hover,
 button.mode.active:hover,
 button.primary:hover {
   background: color-mix(in srgb, var(--muted) 50%, var(--ink));
@@ -386,7 +372,6 @@ kbd.kbd-space {
   opacity: 0.85;
 }
 
-button.tool.active kbd,
 button.mode.active kbd,
 button.primary kbd {
   opacity: 0.65;

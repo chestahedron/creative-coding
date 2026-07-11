@@ -34,6 +34,10 @@
     path.push({ x: p.x, y: p.y });
   }
 
+  function clamp01(t) {
+    return t < 0 ? 0 : t > 1 ? 1 : t;
+  }
+
   /**
    * Turn orientation at `cur` walking prev→cur→next.
    * y-down (canvas): positive cross = clockwise screen turn.
@@ -47,7 +51,7 @@
     return cross > 0 ? "cw" : "ccw";
   }
 
-  function sampleArcDirected(cx, cy, radius, a0, a1, ccw, steps) {
+  function arcDelta(a0, a1, ccw) {
     let delta = a1 - a0;
     if (ccw) {
       while (delta < 0) delta += TWO_PI;
@@ -56,6 +60,11 @@
       while (delta > 0) delta -= TWO_PI;
       while (delta <= -TWO_PI) delta += TWO_PI;
     }
+    return delta;
+  }
+
+  function sampleArcDirected(cx, cy, radius, a0, a1, ccw, steps) {
+    const delta = arcDelta(a0, a1, ccw);
     const pts = [];
     const n = Math.max(2, Math.ceil((Math.abs(delta) / HALF_PI) * steps) || 2);
     for (let i = 0; i <= n; i++) {
@@ -190,18 +199,6 @@
     return { type: "line", x1, y1, x2, y2 };
   }
 
-  function arcDelta(a0, a1, ccw) {
-    let delta = a1 - a0;
-    if (ccw) {
-      while (delta < 0) delta += TWO_PI;
-      while (delta >= TWO_PI) delta -= TWO_PI;
-    } else {
-      while (delta > 0) delta -= TWO_PI;
-      while (delta <= -TWO_PI) delta += TWO_PI;
-    }
-    return delta;
-  }
-
   function pointOnCircle(cx, cy, r, a) {
     return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
   }
@@ -284,12 +281,6 @@
     return d;
   }
 
-  /** Capsule from two equal circles (both exterior flanks). */
-  function pillPath(A, B, radius, arcSteps) {
-    const built = pillContour(A, B, radius, arcSteps);
-    return built ? built.path : null;
-  }
-
   function pillContour(A, B, radius, arcSteps) {
     const steps = arcSteps || 18;
     const pair = equalCircleTangents(A, B, radius).filter((t) => !t.internal);
@@ -321,33 +312,7 @@
       lineSeg(inner.pB.x, inner.pB.y, inner.pA.x, inner.pA.y),
     ];
 
-    const path = [];
-    let arc = sampleArcDirected(
-      A.x,
-      A.y,
-      radius,
-      aInnerA,
-      aOuterA,
-      true,
-      steps * 2
-    );
-    for (const p of arc) appendPoint(path, p);
-    appendPoint(path, outer.pA);
-    appendPoint(path, outer.pB);
-
-    arc = sampleArcDirected(
-      B.x,
-      B.y,
-      radius,
-      aOuterB,
-      aInnerB,
-      true,
-      steps * 2
-    );
-    for (const p of arc) appendPoint(path, p);
-    appendPoint(path, inner.pB);
-    appendPoint(path, inner.pA);
-    return { path, segments };
+    return { path: pathFromSegments(segments, steps * 2), segments };
   }
 
   function segmentsIntersect(a, b, c, d) {
@@ -394,6 +359,99 @@
     return inside;
   }
 
+  /** Minimum distance between two finite segments AB and CD. */
+  function segSegDistance(a, b, c, d) {
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+    const cdx = d.x - c.x;
+    const cdy = d.y - c.y;
+    const cax = a.x - c.x;
+    const cay = a.y - c.y;
+    const ab2 = abx * abx + aby * aby;
+    const cd2 = cdx * cdx + cdy * cdy;
+    const abcd = abx * cdx + aby * cdy;
+    const abca = abx * cax + aby * cay;
+    const cdca = cdx * cax + cdy * cay;
+    let s;
+    let t;
+    const denom = ab2 * cd2 - abcd * abcd;
+    if (denom < 1e-12) {
+      s = 0;
+      t = cd2 > 1e-12 ? clamp01(cdca / cd2) : 0;
+    } else {
+      s = clamp01((abcd * cdca - cd2 * abca) / denom);
+      t = clamp01((ab2 * cdca - abcd * abca) / denom);
+    }
+    // Recompute s if t was clamped (and vice versa) for better endpoint accuracy
+    if (denom >= 1e-12) {
+      if (t === 0 || t === 1) {
+        s = ab2 > 1e-12 ? clamp01((abcd * t - abca) / ab2) : 0;
+      } else if (s === 0 || s === 1) {
+        t = cd2 > 1e-12 ? clamp01((abcd * s + cdca) / cd2) : 0;
+      }
+    }
+    const px = a.x + abx * s;
+    const py = a.y + aby * s;
+    const qx = c.x + cdx * t;
+    const qy = c.y + cdy * t;
+    return Math.hypot(px - qx, py - qy);
+  }
+
+  /**
+   * True if non-adjacent path edges come closer than minGap
+   * (near-touching waists count as overlap).
+   */
+  function pathTooNarrow(path, minGap) {
+    if (!path || path.length < 6) return false;
+    let pts = path;
+    // Cap sample count so O(n²) clearance stays cheap on large grids
+    const maxPts = 64;
+    if (pts.length > maxPts) {
+      const step = Math.ceil(pts.length / maxPts);
+      const sparse = [];
+      for (let i = 0; i < pts.length; i += step) sparse.push(pts[i]);
+      pts = sparse;
+    }
+    const n = pts.length;
+    // Skip edges that are still "local" along the contour (dense arc samples)
+    const skip = Math.max(4, Math.floor(n / 10));
+    for (let i = 0; i < n; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % n];
+      for (let j = i + skip; j < n; j++) {
+        const along = Math.min(j - i, n - (j - i));
+        if (along < skip) continue;
+        const c = pts[j];
+        const d = pts[(j + 1) % n];
+        if (segSegDistance(a, b, c, d) < minGap) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Longest run of collinear steps on a pin-grid cycle ({c,r}). */
+  function maxCollinearRun(list) {
+    const n = list.length;
+    if (n < 3) return n;
+    let maxRun = 2;
+    for (let i = 0; i < n; i++) {
+      const a = list[i];
+      const b = list[(i + 1) % n];
+      const dc = b.c - a.c;
+      const dr = b.r - a.r;
+      if (dc === 0 && dr === 0) continue;
+      let run = 2;
+      for (let k = 2; k < n; k++) {
+        const p = list[(i + k - 1) % n];
+        const q = list[(i + k) % n];
+        if (q.c - p.c === dc && q.r - p.r === dr) run++;
+        else break;
+      }
+      if (run > maxRun) maxRun = run;
+    }
+    return maxRun;
+  }
+
   /**
    * Resolve orientations for a pin cycle.
    * Flats inherit from a neighbor once a tangent commits them.
@@ -417,16 +475,7 @@
   function arcSpanAt(node, arrive, leave, orient) {
     const a0 = Math.atan2(arrive.y - node.y, arrive.x - node.x);
     const a1 = Math.atan2(leave.y - node.y, leave.x - node.x);
-    const mathCcw = orientMathCcw(orient);
-    let delta = a1 - a0;
-    if (mathCcw) {
-      while (delta < 0) delta += TWO_PI;
-      while (delta >= TWO_PI) delta -= TWO_PI;
-    } else {
-      while (delta > 0) delta -= TWO_PI;
-      while (delta <= -TWO_PI) delta += TWO_PI;
-    }
-    return Math.abs(delta);
+    return Math.abs(arcDelta(a0, a1, orientMathCcw(orient)));
   }
 
   function collectLinks(pins, orients, radius) {
@@ -473,6 +522,7 @@
   /**
    * For flat pins, try both cw/ccw and keep the assignment that wraps
    * collinear mid-edge pins instead of collapsing them to a point.
+   * Returns { orients, links } or null.
    */
   function assignOrientations(pins, radius) {
     const n = pins.length;
@@ -484,7 +534,8 @@
     const flatIdx = new Set(free);
 
     if (!free.length) {
-      return tryLinks(pins, base, radius) ? base : null;
+      const links = collectLinks(pins, base, radius);
+      return links ? { orients: base, links } : null;
     }
 
     // Prefer opposite wrap from neighbors so a mid-edge pin dents/wraps
@@ -514,7 +565,7 @@
         const score = scoreAssignment(pins, trial, links, flatIdx);
         if (score > bestScore) {
           bestScore = score;
-          best = trial;
+          best = { orients: trial, links };
         }
         return;
       }
@@ -530,10 +581,6 @@
     }
     dfs(0);
     return best;
-  }
-
-  function tryLinks(pins, orients, radius) {
-    return collectLinks(pins, orients, radius) !== null;
   }
 
   /**
@@ -559,14 +606,6 @@
 
     if (pins.length === 1) {
       const p = pins[0];
-      const path = [];
-      for (let i = 0; i <= steps * 4; i++) {
-        const a = (i / (steps * 4)) * TWO_PI;
-        path.push({
-          x: p.x + Math.cos(a) * radius,
-          y: p.y + Math.sin(a) * radius,
-        });
-      }
       // Four quarter arcs (full circle) — SVG A cannot express a full 360° in one command
       const segments = [
         arcSeg(p.x, p.y, radius, 0, HALF_PI, true),
@@ -575,7 +614,7 @@
         arcSeg(p.x, p.y, radius, Math.PI + HALF_PI, TWO_PI, true),
       ];
       return {
-        path,
+        path: pathFromSegments(segments, steps),
         segments,
         orients: ["ccw"],
         ok: true,
@@ -607,8 +646,8 @@
       };
     }
 
-    const orients = assignOrientations(pins, radius);
-    if (!orients) {
+    const assigned = assignOrientations(pins, radius);
+    if (!assigned) {
       return {
         path: [],
         segments: [],
@@ -619,26 +658,9 @@
       };
     }
 
+    const { orients, links } = assigned;
     const n = pins.length;
-    const links = [];
-    for (let i = 0; i < n; i++) {
-      const A = pins[i];
-      const B = pins[(i + 1) % n];
-      const t = pickTangent(A, B, orients[i], orients[(i + 1) % n], radius);
-      if (!t) {
-        return {
-          path: [],
-          segments: [],
-          orients,
-          ok: false,
-          reason: `link ${i}`,
-          selfIntersecting: false,
-        };
-      }
-      links.push(t);
-    }
 
-    const path = [];
     const segments = [];
     for (let i = 0; i < n; i++) {
       const node = pins[i];
@@ -650,24 +672,12 @@
       const a1 = Math.atan2(leave.y - node.y, leave.x - node.x);
       const mathCcw = orientMathCcw(orients[i]);
       segments.push(arcSeg(node.x, node.y, radius, a0, a1, mathCcw));
-      const arc = sampleArcDirected(
-        node.x,
-        node.y,
-        radius,
-        a0,
-        a1,
-        mathCcw,
-        steps
-      );
-      for (const p of arc) appendPoint(path, p);
       if (!next.degenerate) {
-        appendPoint(path, leave);
-        appendPoint(path, next.pB);
-        segments.push(
-          lineSeg(leave.x, leave.y, next.pB.x, next.pB.y)
-        );
+        segments.push(lineSeg(leave.x, leave.y, next.pB.x, next.pB.y));
       }
     }
+
+    const path = pathFromSegments(segments, steps);
 
     if (path.length < 3) {
       return {
@@ -699,10 +709,13 @@
     buildRubberBand,
     polylineSelfIntersects,
     pointInPoly,
-    pillPath,
     pillContour,
     sampleArcDirected,
     segmentsToSvgD,
     resolveOrientations,
+    clamp01,
+    segSegDistance,
+    pathTooNarrow,
+    maxCollinearRun,
   };
 });

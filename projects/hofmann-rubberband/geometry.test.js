@@ -225,4 +225,87 @@ test("1-pin SVG is four quarter arcs", () => {
   assert(!d.includes(" L "), "no lines");
 });
 
+// --- Failure reasons ---
+test("empty pins returns reason empty", () => {
+  const result = G.buildRubberBand([], radius, 18);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, "empty");
+  assert.strictEqual(result.path.length, 0);
+});
+
+test("null pins returns reason empty", () => {
+  const result = G.buildRubberBand(null, radius, 18);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, "empty");
+});
+
+test("coincident 2-pin pill fails", () => {
+  const A = pt(2, 2);
+  const B = { x: A.x, y: A.y, c: 2, r: 2 };
+  const result = G.buildRubberBand([A, B], radius, 18);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, "pill");
+});
+
+// --- Helpers ---
+test("resolveOrientations marks rectangle corners cw", () => {
+  const pins = [pt(1, 1), pt(5, 1), pt(5, 4), pt(1, 4)];
+  const orients = G.resolveOrientations(pins);
+  assert.strictEqual(orients.length, 4);
+  assert(orients.every((o) => o === "cw" || o === "ccw"));
+});
+
+test("pickTangent returns exterior for matching wraps", () => {
+  const A = pt(1, 1);
+  const B = pt(5, 1);
+  const t = G.pickTangent(A, B, "cw", "cw", radius);
+  assert(t, "tangent exists");
+  assert(t.pA && t.pB, "contact points");
+});
+
+test("polylineSelfIntersects detects crossing quad", () => {
+  const bow = [
+    { x: 0, y: 0 },
+    { x: 40, y: 40 },
+    { x: 40, y: 0 },
+    { x: 0, y: 40 },
+  ];
+  assert(G.polylineSelfIntersects(bow), "bow-tie intersects");
+  const square = [
+    { x: 0, y: 0 },
+    { x: 40, y: 0 },
+    { x: 40, y: 40 },
+    { x: 0, y: 40 },
+  ];
+  assert(!G.polylineSelfIntersects(square), "square simple");
+});
+
+test("maxCollinearRun counts flat edge pins", () => {
+  const list = [
+    { c: 0, r: 0 },
+    { c: 1, r: 0 },
+    { c: 2, r: 0 },
+    { c: 3, r: 0 },
+    { c: 3, r: 1 },
+  ];
+  assert(G.maxCollinearRun(list) >= 4, "run of 4 on top edge");
+});
+
+test("pathTooNarrow detects near-touching waist", () => {
+  // Dense samples along two long parallel edges 1 unit apart
+  const path = [];
+  for (let i = 0; i <= 20; i++) path.push({ x: i * 5, y: 0 });
+  for (let i = 20; i >= 0; i--) path.push({ x: i * 5, y: 1 });
+  assert(G.pathTooNarrow(path, 2), "waist closer than 2");
+  assert(!G.pathTooNarrow(path, 0.5), "gap above 0.5 allowed");
+});
+
+test("sampleArcDirected returns endpoints", () => {
+  const pts = G.sampleArcDirected(0, 0, 10, 0, Math.PI / 2, true, 8);
+  assert(pts.length >= 3, "enough samples");
+  assert(Math.abs(pts[0].x - 10) < 1e-6 && Math.abs(pts[0].y) < 1e-6);
+  const last = pts[pts.length - 1];
+  assert(Math.abs(last.x) < 1e-6 && Math.abs(last.y - 10) < 1e-6);
+});
+
 console.log(`\n${passed} tests passed`);
